@@ -22,7 +22,7 @@ services:
         value: "12"
       - key: APP_URL
         value: https://morahome.in
-    disks:
-      - name: mora-data
-        mountPath: /var/data
-        sizeGB: 1                  # raise later if media storage grows
+        disk:
+      name: mora-data
+      mountPath: /var/data
+      sizeGB: 1                # raise later if media storage grows
