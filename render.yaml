@@ -1,0 +1,28 @@
+# Render blueprint — one-click deploy for MORA HOME v6
+# Dashboard → New → Blueprint → select your repo. (Requires a paid Starter instance for the persistent disk.)
+services:
+  - type: web
+    name: mora-home
+    runtime: node
+    plan: starter                 # disks are not available on free instances
+    buildCommand: npm ci
+    startCommand: node src/server.js
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: DATA_DIR             # app stores SQLite DB + uploads + documents here → lives on the disk
+        value: /var/data
+      - key: SECURE_COOKIES
+        value: "1"
+      - key: SESSION_SECRET
+        generateValue: true        # Render generates a long random secret
+      - key: MAX_UPLOAD_MB
+        value: "12"
+      - key: APP_URL
+        value: https://morahome.in
+    disks:
+      - name: mora-data
+        mountPath: /var/data
+        sizeGB: 1                  # raise later if media storage grows
