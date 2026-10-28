@@ -6,7 +6,7 @@ body { margin:0; font-family:"Helvetica Neue", Helvetica, Arial, sans-serif; col
   box-shadow:0 6px 30px rgba(0,0,0,.18); position:relative; display:flex; flex-direction:column;
 }
 .sheet-head { display:flex; gap:14px; align-items:flex-start; border-bottom:2px solid #5C3D2E; padding-bottom:10px; }
-.sheet-crest img { width:30mm; }
+.sheet-crest img { width:30mm; height:auto; }
 .sheet-head-text { flex:1; }
 .sheet-head-text h1 { font-family:Georgia, "Times New Roman", serif; letter-spacing:.18em; font-size:22px; margin:0; color:#3B2417; }
 .sheet-head-text p { margin:2px 0; font-size:9.5px; color:#66625B; }

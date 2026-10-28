@@ -126,71 +126,97 @@ async function drawSpecPage(doc, p, ctx, crestBuf) {
   footer();
 }
 
-/** Branded catalogue cover page (audit H2). */
+/** Branded catalogue cover page (audit H2) — fully centred, print-professional.
+    NOTE: pdfkit only honours `align` when an explicit `width` is passed, so every
+    centred line goes through the `center()` helper below. */
 function drawCoverPage(doc, ctx, crestBuf, prods) {
   const c = ctx.contact;
   const W = doc.page.width, H = doc.page.height;
+  const center = (str, y, opt = {}, width = W) =>
+    doc.text(str, (W - width) / 2, y, Object.assign({ width, align: 'center' }, opt));
+
   doc.rect(0, 0, W, H).fill(C.paper);
   doc.rect(0, 0, W, 9 * MM).fill(C.walnut);
   doc.rect(0, H - 9 * MM, W, 9 * MM).fill(C.walnut);
 
-  let y = 30 * MM;
+  /* ── crest ── */
+  let y = 22 * MM;
   if (crestBuf) {
-    const cw = 52 * MM, ch = cw * CREST_RATIO;
+    const cw = 46 * MM, ch = cw * CREST_RATIO;
     try { doc.image(crestBuf, (W - cw) / 2, y, { width: cw }); } catch { /* skip */ }
-    y += ch + 8 * MM;
+    y += ch + 6 * MM;
   }
-  doc.font('Times-Bold').fontSize(36).fillColor(C.dark)
-    .text('MORA HOME', 0, y, { align: 'center', characterSpacing: 6, lineBreak: false });
-  y += 15 * MM;
-  doc.font('Helvetica').fontSize(11).fillColor(C.muted)
-    .text('Manufacturer & Exporter of Handcrafted Metal & Wooden Home Products', 0, y, { align: 'center', lineBreak: false });
+
+  /* ── masthead ── */
+  doc.font('Times-Bold').fontSize(34).fillColor(C.dark);
+  center('MORA HOME', y, { characterSpacing: 5 });
+  y = doc.y + 4.5 * MM;
+  doc.font('Helvetica').fontSize(10.5).fillColor(C.muted);
+  center('Manufacturer & Exporter of Handcrafted Metal & Wooden Home Products', y);
+  y = doc.y + 2 * MM;
+  doc.fontSize(9.5);
+  center('Moradabad, Uttar Pradesh · India', y);
+  y = doc.y + 7 * MM;
+
+  /* ── ornamental rule with crimson dot ── */
+  doc.moveTo(W / 2 - 35 * MM, y).lineTo(W / 2 - 4 * MM, y).lineWidth(1).strokeColor(C.walnut).stroke();
+  doc.moveTo(W / 2 + 4 * MM, y).lineTo(W / 2 + 35 * MM, y).lineWidth(1).strokeColor(C.walnut).stroke();
+  doc.circle(W / 2, y, 1.7).fill(C.crimson);
   y += 7 * MM;
-  doc.font('Helvetica').fontSize(9.5).fillColor(C.muted)
-    .text('Moradabad, Uttar Pradesh · India', 0, y, { align: 'center', lineBreak: false });
-  y += 12 * MM;
 
-  /* centred walnut rule */
-  doc.moveTo(W / 2 - 30 * MM, y).lineTo(W / 2 + 30 * MM, y).lineWidth(1.4).strokeColor(C.walnut).stroke();
-  y += 10 * MM;
-
-  doc.font('Helvetica-Bold').fontSize(19).fillColor(C.crimson)
-    .text('WHOLESALE CATALOGUE', 0, y, { align: 'center', characterSpacing: 3, lineBreak: false });
-  y += 9 * MM;
+  /* ── title block ── */
+  doc.font('Helvetica-Bold').fontSize(20).fillColor(C.crimson);
+  center('WHOLESALE CATALOGUE', y, { characterSpacing: 4 });
+  y = doc.y + 5 * MM;
   const edition = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
-  doc.font('Helvetica').fontSize(10.5).fillColor(C.walnut)
-    .text(`Edition — ${edition}`, 0, y, { align: 'center', lineBreak: false });
-  y += 16 * MM;
+  doc.font('Helvetica').fontSize(10.5).fillColor(C.walnut);
+  center(`Edition — ${edition}`, y);
+  y = doc.y + 9 * MM;
 
-  /* what's inside */
+  /* ── centred contents panel ── */
   const cats = db.all(`SELECT c.name, c.slug, COUNT(p.id) AS n
       FROM categories c LEFT JOIN products p ON p.category_slug = c.slug AND p.status = 'published'
       WHERE c.visible = 1 GROUP BY c.id, c.name, c.slug ORDER BY c.sort ASC`);
   const listed = cats.filter((x) => x.n > 0);
   if (listed.length) {
-    doc.font('Helvetica-Bold').fontSize(9).fillColor(C.muted)
-      .text('IN THIS EDITION', 0, y, { align: 'center', characterSpacing: 2.5, lineBreak: false });
-    y += 7 * MM;
-    doc.font('Helvetica').fontSize(10.5).fillColor(C.text);
-    listed.forEach((x) => {
-      doc.text(`${x.name} — ${x.n} design${x.n === 1 ? '' : 's'}`, 0, y, { align: 'center', lineBreak: false });
-      y += 5.6 * MM;
+    const PW = 132 * MM, PX = (W - PW) / 2;
+    const headH = 11 * MM, rowH = 7 * MM, footH = 10 * MM;
+    const PH = headH + listed.length * rowH + footH;
+    doc.roundedRect(PX, y, PW, PH, 3 * MM).fillAndStroke(C.stripe, C.line);
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(C.muted);
+    center('IN THIS EDITION', y + 4.2 * MM, { characterSpacing: 2.5 });
+    let ry = y + headH;
+    listed.forEach((x, i) => {
+      doc.font('Helvetica').fontSize(10.5).fillColor(C.text)
+        .text(x.name, PX + 10 * MM, ry + 2.1 * MM, { width: PW - 34 * MM, lineBreak: false });
+      doc.font('Helvetica-Bold').fillColor(C.walnut)
+        .text(`${x.n} design${x.n === 1 ? '' : 's'}`, PX + PW - 30 * MM, ry + 2.1 * MM, { width: 20 * MM, align: 'right', lineBreak: false });
+      ry += rowH;
+      if (i < listed.length - 1) {
+        doc.moveTo(PX + 8 * MM, ry).lineTo(PX + PW - 8 * MM, ry).lineWidth(0.5).strokeColor(C.line).stroke();
+      }
     });
-    y += 2 * MM;
-    doc.font('Helvetica-Oblique').fontSize(9.5).fillColor(C.muted)
-      .text(`${prods.length} curated design${prods.length === 1 ? '' : 's'} · 500+ designs in our repertoire — tell us what you need and we will quote.`,
-        30 * MM, y, { align: 'center', width: W - 60 * MM });
-    y = doc.y + 8 * MM;
+    doc.font('Helvetica-Oblique').fontSize(8.8).fillColor(C.muted);
+    center(`${prods.length} curated design${prods.length === 1 ? '' : 's'} shown · 500+ designs in our repertoire — tell us what you need and we will quote.`,
+      y + PH - footH + 3 * MM, {}, PW - 16 * MM);
+    y += PH + 9 * MM;
   }
 
-  /* contact block */
-  const by = H - 34 * MM;
-  doc.moveTo(30 * MM, by - 6 * MM).lineTo(W - 30 * MM, by - 6 * MM).lineWidth(0.75).strokeColor(C.line).stroke();
-  doc.font('Helvetica-Bold').fontSize(9.5).fillColor(C.walnut)
-    .text(clean(`${c.phone}  ·  WhatsApp +${c.whatsapp}`), 0, by, { align: 'center', lineBreak: false });
-  doc.font('Helvetica').fontSize(9.5).fillColor(C.muted)
-    .text(clean(`${c.email1}  ·  ${c.email2}`), 0, by + 5 * MM, { align: 'center', lineBreak: false });
-  doc.fontSize(8.5).text(clean(c.address), 0, by + 10 * MM, { align: 'center', lineBreak: false });
+  /* ── centred contact block ── */
+  const by = H - 42 * MM;
+  doc.moveTo(W / 2 - 35 * MM, by - 7 * MM).lineTo(W / 2 + 35 * MM, by - 7 * MM).lineWidth(0.75).strokeColor(C.line).stroke();
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(C.walnut);
+  center(clean(`${c.phone}   ·   WhatsApp +${c.whatsapp}`), by);
+  y = doc.y + 2.4 * MM;
+  doc.font('Helvetica').fontSize(9.5).fillColor(C.muted);
+  center(clean(`${c.email1}   ·   ${c.email2}`), y);
+  y = doc.y + 2.4 * MM;
+  doc.fontSize(9);
+  center(clean(c.address), y);
+
+  /* ── trade note above the bottom band ── */
+  doc.font('Helvetica-Oblique').fontSize(8.5).fillColor(C.muted);
+  center('Prices on request · MOQ applies per product · Custom branding & private label available', H - 17 * MM, {}, W - 40 * MM);
 }
 
 function collect(doc) {

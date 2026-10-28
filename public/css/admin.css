@@ -13,7 +13,7 @@ code { background:#f0e9dd; padding:1px 6px; border-radius:6px; }
 .admin-body { display:grid; grid-template-columns:250px 1fr; min-height:100vh; }
 .admin-side { background:var(--side); color:#E9DFD3; display:flex; flex-direction:column; position:sticky; top:0; height:100vh; overflow:auto; }
 .admin-brand { display:flex; gap:12px; align-items:center; padding:18px 16px; border-bottom:1px solid rgba(255,255,255,.12); }
-.admin-brand img { width:44px; background:#FFFDF8; border-radius:10px; padding:4px; }
+.admin-brand img { width:44px; height:auto; background:#FFFDF8; border-radius:10px; padding:4px; }
 .admin-brand strong { display:block; font-family:"Playfair Display", serif; letter-spacing:.14em; color:#fff; }
 .admin-brand span { font-size:11px; color:#C9B8A4; letter-spacing:.08em; }
 .admin-nav { display:flex; flex-direction:column; padding:10px 8px; gap:2px; flex:1; }
@@ -134,7 +134,7 @@ input[type=checkbox].switch:checked::after { left:21px; }
 /* login */
 .login-body { min-height:100vh; display:flex; align-items:center; justify-content:center; background:linear-gradient(160deg,#FBF9F4,#EFE6D6); }
 .login-card { background:#fff; border:1px solid var(--line); border-radius:20px; padding:34px 30px; width:min(420px, 92vw); display:flex; flex-direction:column; gap:14px; box-shadow:0 20px 60px rgba(60,40,20,.12); }
-.login-crest { width:110px; margin:0 auto; }
+.login-crest { width:110px; height:auto; margin:0 auto; }
 .login-card h1 { text-align:center; font-size:24px; }
 .login-sub { text-align:center; color:var(--muted); margin:-6px 0 4px; }
 .login-card label { display:flex; flex-direction:column; gap:6px; font-weight:600; font-size:12.5px; color:#5C3D2E; }
