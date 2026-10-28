@@ -1,0 +1,39 @@
+/* MORA HOME — printable A4 spec sheet */
+* { box-sizing:border-box; }
+body { margin:0; font-family:"Helvetica Neue", Helvetica, Arial, sans-serif; color:#1A1A1A; background:#efe9df; }
+.sheet {
+  width:210mm; min-height:297mm; margin:14px auto; background:#FFFDF8; padding:16mm 14mm;
+  box-shadow:0 6px 30px rgba(0,0,0,.18); position:relative; display:flex; flex-direction:column;
+}
+.sheet-head { display:flex; gap:14px; align-items:flex-start; border-bottom:2px solid #5C3D2E; padding-bottom:10px; }
+.sheet-crest img { width:30mm; }
+.sheet-head-text { flex:1; }
+.sheet-head-text h1 { font-family:Georgia, "Times New Roman", serif; letter-spacing:.18em; font-size:22px; margin:0; color:#3B2417; }
+.sheet-head-text p { margin:2px 0; font-size:9.5px; color:#66625B; }
+.sheet-code { font-weight:800; color:#8B0000; font-size:15px; letter-spacing:.06em; }
+.sheet-title { font-family:Georgia, serif; font-size:20px; color:#3B2417; margin:14px 0 4px; }
+.sheet-body { display:flex; gap:16px; margin-top:10px; }
+.sheet-photo { width:52mm; height:52mm; border:1px solid #E5DEC9; border-radius:8px; overflow:hidden; background:#F4EFE6; flex:none; display:flex; align-items:center; justify-content:center; }
+.sheet-photo img { width:100%; height:100%; object-fit:cover; }
+.sheet-ph { color:#8A6A52; font-size:10px; letter-spacing:.14em; }
+.sheet-facts { flex:1; }
+.sheet-facts table, .sheet-specs { width:100%; border-collapse:collapse; font-size:10px; }
+.sheet-facts th, .sheet-specs th { text-align:left; color:#5C3D2E; width:34%; padding:5px 8px; border-bottom:1px solid #E5DEC9; vertical-align:top; }
+.sheet-facts td, .sheet-specs td { padding:5px 8px; border-bottom:1px solid #E5DEC9; color:#333; vertical-align:top; }
+.sheet-specs tr:nth-child(odd) { background:#FBF9F4; }
+.sheet-desc { font-size:10px; color:#66625B; margin-top:8px; }
+.sheet-sub { font-family:Georgia, serif; color:#5C3D2E; font-size:13px; margin:16px 0 6px; }
+.sheet-foot { margin-top:auto; border-top:1px solid #E5DEC9; padding-top:8px; font-size:8.5px; color:#66625B; }
+.sheet-foot-contact { color:#5C3D2E; font-weight:600; }
+.print-bar { display:flex; gap:12px; justify-content:center; padding:14px; }
+.print-bar button, .print-bar a {
+  font:600 14px/1.2 "Helvetica Neue", sans-serif; padding:12px 20px; border-radius:10px; border:1px solid #5C3D2E;
+  background:#fff; color:#5C3D2E; cursor:pointer; text-decoration:none;
+}
+.print-bar button { background:#8B0000; border-color:#8B0000; color:#fff; }
+@page { size:A4; margin:0; }
+@media print {
+  body { background:#fff; }
+  .sheet { margin:0; box-shadow:none; width:auto; min-height:auto; }
+  .no-print { display:none !important; }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "mora-home-b2b",
+  "version": "7.0.0",
+  "description": "MORA HOME — Complete B2B website + no-code visual Admin CMS (Express + SQLite + vanilla JS)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "seed": "node src/seed.js --force",
+    "qa": "node scripts/qa-verify.js",
+    "backup": "node -e \"console.log('Use Admin → Backup & Restore for a full .zip backup.')\""
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "pdfkit": "^0.15.0",
+    "sharp": "^0.33.5",
+    "sql.js": "^1.11.0"
+  }
+}
