@@ -88,6 +88,39 @@ Settings), and consider putting `/admin` behind Cloudflare Access.
 
 ---
 
+## New features (Oct 2026 — five-feature batch)
+
+* **WhatsApp auto-lookup** — in the WhatsApp modal, typing a product code (e.g. `MH-2017`,
+  `mh 2017`, even just `2017`) into “Interested in” looks the product up via
+  `GET /api/product-lookup` and shows a green confirmation chip. The message preview
+  automatically gains `Product details — Name (CODE): description…`, so the owner receives
+  full context on WhatsApp. Unknown codes simply leave the message unchanged.
+* **Desktop fit** — the mobile hamburger button and slide-in drawer are now hidden at
+  ≥901px (`v8.2` block at the end of `public/css/site.css`); desktop shows the full inline
+  nav with a wider header search. Mobile behaviour is untouched.
+* **Designed catalogue cover page** — your designed A4 cover (`assets/brand/catalogue-cover.pdf`)
+  is installed on first boot to `/uploads/catalogue-cover/` and merged (pdf-lib) in front of
+  the auto-generated catalogue, replacing the old generated page 1. Replace or remove it any
+  time in **Admin → Catalogue → “Catalogue Cover Page”**; removal falls back to the generated
+  cover. Setting is `catalogue_cover` (`{path, note}`).
+* **Per-range catalogue downloads** — `/catalogue/latest?cat=<slug>` serves a catalogue for one
+  product range (404 for unknown/empty ranges); `/catalogue/latest` remains the full one. The
+  Products page renders an “All Categories” pill plus one pill per category — new categories
+  get their download button automatically, no code changes. Admin → Catalogue lists all live
+  links. Each variant is cached in memory and rebuilt when its products or the cover change.
+* **Wholesale price box** — products have a `price` text column (added by `src/migrate.js` on
+  existing databases; demo products ship with sample prices). It renders as a pill beside the
+  product code — slightly larger — on every card, on the product page, in the spec sheet
+  (HTML + PDF, “Wholesale Price” row), and in the auto catalogue/spec PDFs. Empty price shows
+  “On request”. Admin: price field in the product editor (live preview included), Price column
+  in the product table, and real `lowPrice`/`highPrice` in the Product JSON-LD (ranges like
+  `₹2,400–₹2,900` are parsed).
+
+Verify with `npm run qa` (64 platform checks) and `npm run qa:features` (57 feature checks —
+run it **before** `qa`, which deliberately exhausts the login rate limiter).
+
+---
+
 ## Deployment & data safety — read before hosting
 
 The database (`data/mora.db`) and all uploads live in the **`data/` directory of the machine

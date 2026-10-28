@@ -94,6 +94,7 @@ async function drawSpecPage(doc, p, ctx, crestBuf) {
   const facts = [['Product Code', p.code], ['Category', cat ? cat.name : '—']];
   if (p.badge) facts.push(['Badge', p.badge]);
   facts.push(['Material', p.material], ['Size', p.size], ['MOQ', p.moq]);
+  if (p.price) facts.push(['Wholesale Price', p.price]);
   let fy = y;
   facts.forEach(([k, v]) => {
     const val = clean(v) || '—';
@@ -129,7 +130,7 @@ async function drawSpecPage(doc, p, ctx, crestBuf) {
 /** Branded catalogue cover page (audit H2) — fully centred, print-professional.
     NOTE: pdfkit only honours `align` when an explicit `width` is passed, so every
     centred line goes through the `center()` helper below. */
-function drawCoverPage(doc, ctx, crestBuf, prods) {
+function drawCoverPage(doc, ctx, crestBuf, prods, opts = {}) {
   const c = ctx.contact;
   const W = doc.page.width, H = doc.page.height;
   const center = (str, y, opt = {}, width = W) =>
@@ -166,7 +167,7 @@ function drawCoverPage(doc, ctx, crestBuf, prods) {
 
   /* ── title block ── */
   doc.font('Helvetica-Bold').fontSize(20).fillColor(C.crimson);
-  center('WHOLESALE CATALOGUE', y, { characterSpacing: 4 });
+  center(opts.title || 'WHOLESALE CATALOGUE', y, { characterSpacing: 4 });
   y = doc.y + 5 * MM;
   const edition = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
   doc.font('Helvetica').fontSize(10.5).fillColor(C.walnut);
@@ -174,7 +175,7 @@ function drawCoverPage(doc, ctx, crestBuf, prods) {
   y = doc.y + 9 * MM;
 
   /* ── centred contents panel ── */
-  const cats = db.all(`SELECT c.name, c.slug, COUNT(p.id) AS n
+  const cats = opts.cats || db.all(`SELECT c.name, c.slug, COUNT(p.id) AS n
       FROM categories c LEFT JOIN products p ON p.category_slug = c.slug AND p.status = 'published'
       WHERE c.visible = 1 GROUP BY c.id, c.name, c.slug ORDER BY c.sort ASC`);
   const listed = cats.filter((x) => x.n > 0);
@@ -238,22 +239,48 @@ async function specPdf(p, ctx) {
   return done;
 }
 
-/** Full wholesale catalogue PDF: cover + spec page per published product. */
-async function cataloguePdf(ctx) {
-  const prods = db.all("SELECT * FROM products WHERE status = 'published' ORDER BY category_slug ASC, code ASC");
+/** Full wholesale catalogue PDF.
+    opts.catSlug      → only that category's products (range catalogue)
+    opts.includeCover → draw the built-in cover (false when a custom cover page
+                        will be merged in front by mergeCover())            */
+async function cataloguePdf(ctx, opts = {}) {
+  const where = opts.catSlug ? "status = 'published' AND category_slug = ?" : "status = 'published'";
+  const params = opts.catSlug ? [opts.catSlug] : [];
+  const prods = db.all(`SELECT * FROM products WHERE ${where} ORDER BY category_slug ASC, code ASC`, params);
   const crestBuf = await crestBuffer(ctx);
+  let cat = null;
+  if (opts.catSlug) cat = db.get('SELECT * FROM categories WHERE slug = ?', [opts.catSlug]);
   const doc = new PDFDocument({
     size: 'A4', margin: 0,
-    info: { Title: 'MORA HOME — Wholesale Catalogue', Author: 'MORA HOME', Subject: 'Auto-generated wholesale catalogue' },
+    info: {
+      Title: cat ? `MORA HOME — ${cat.name} Range Catalogue` : 'MORA HOME — Wholesale Catalogue',
+      Author: 'MORA HOME', Subject: 'Auto-generated wholesale catalogue',
+    },
   });
   const done = collect(doc);
-  drawCoverPage(doc, ctx, crestBuf, prods);
-  for (const p of prods) {
-    doc.addPage();
-    await drawSpecPage(doc, p, ctx, crestBuf);   // eslint-disable-line no-await-in-loop
+  if (opts.includeCover !== false) {
+    drawCoverPage(doc, ctx, crestBuf, prods, cat
+      ? { title: `${cat.name.toUpperCase()} RANGE`, cats: [{ name: cat.name, slug: cat.slug, n: prods.length }] }
+      : {});
+  }
+  for (let i = 0; i < prods.length; i++) {
+    if (i > 0 || opts.includeCover !== false) doc.addPage();
+    await drawSpecPage(doc, prods[i], ctx, crestBuf);   // eslint-disable-line no-await-in-loop
   }
   doc.end();
   return done;
 }
 
-module.exports = { specPdf, cataloguePdf };
+/** Prepend an uploaded/branded cover PDF (e.g. the designed front page) to a
+    generated body PDF. Uses pdf-lib — pure JS, no external binaries. */
+async function mergeCover(coverBuf, bodyBuf) {
+  const { PDFDocument } = require('pdf-lib');
+  const out = await PDFDocument.create();
+  const cover = await PDFDocument.load(coverBuf, { ignoreEncryption: true });
+  const body = await PDFDocument.load(bodyBuf, { ignoreEncryption: true });
+  for (const pg of await out.copyPages(cover, cover.getPageIndices())) out.addPage(pg);
+  for (const pg of await out.copyPages(body, body.getPageIndices())) out.addPage(pg);
+  return Buffer.from(await out.save());
+}
+
+module.exports = { specPdf, cataloguePdf, mergeCover };

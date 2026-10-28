@@ -394,10 +394,11 @@
         <button class="abtn primary" id="newProd">＋ Add New Product</button>
       </div>
       <p class="hint">Demo products show the exact reference layout. Upload real photos any time — or clear all demo data in Settings.</p>
-      <div style="overflow-x:auto"><table class="prod-table"><thead><tr><th></th><th>Code</th><th>Name</th><th>Badge</th><th>Category</th><th>MOQ</th><th>Status</th><th></th></tr></thead>
+      <div style="overflow-x:auto"><table class="prod-table"><thead><tr><th></th><th>Code</th><th>Price</th><th>Name</th><th>Badge</th><th>Category</th><th>MOQ</th><th>Status</th><th></th></tr></thead>
       <tbody>${STATE.products.map((p) => `<tr>
         <td>${p.images[0] ? `<img class="prod-thumb" src="${esc(p.images[0].path)}" alt="">` : '<span class="prod-thumb" style="display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:#8A6A52">PH</span>'}</td>
         <td><b>${esc(p.code)}</b>${p.demo ? ' <span class="badge-pill">demo</span>' : ''}${p.featured ? ' <span class="badge-pill">★ featured</span>' : ''}</td>
+        <td>${p.price ? `<span class="badge-pill">${esc(p.price)}</span>` : '<span class="hint" style="font-size:10px">On request</span>'}</td>
         <td>${esc(p.name)}</td><td>${p.badge ? `<span class="badge-pill">${esc(p.badge)}</span>` : '—'}</td>
         <td>${esc(p.category_slug)}</td><td>${esc(p.moq)}</td>
         <td><span class="status-pill ${p.status}">${esc(p.status)}</span></td>
@@ -414,7 +415,7 @@
 
   function openProductEditor(p) {
     const isNew = !p;
-    const d = p ? clone(p) : { code: '', name: '', badge: '', category_slug: '', material: '', size: '', moq: '', description: '', specs: [], price_on_request: true, featured: false, status: 'published', images: [] };
+    const d = p ? clone(p) : { code: '', name: '', badge: '', category_slug: '', material: '', size: '', moq: '', price: '', description: '', specs: [], price_on_request: true, featured: false, status: 'published', images: [] };
     if (p) { try { d.specs = JSON.parse(p.specs_json || '[]'); } catch { d.specs = []; } }
     const BADGES = ['Diwali Gifting', 'Occasion & Return Gifting', 'Corporate Gifting', 'Best Seller', 'New Arrival', 'None'];
     openModal(`<h3>${isNew ? '＋ Add New Product' : '✏️ Edit ' + esc(p.code)}</h3>
@@ -429,6 +430,7 @@
           ${field('Card Line 1 — Material', input('material', d.material), 'e.g. Brass or Steel, Wood')}
           ${field('Card Line 2 — Size / Dimensions', input('size', d.size), 'e.g. Box 30 × 22 × 10 cm')}
           ${field('Card Line 3 — MOQ', input('moq', d.moq), 'e.g. 50 pcs')}
+          ${field('Price Box — shown beside the code on every card, page, catalogue & spec sheet', input('price', d.price || ''), 'e.g. ₹1,249 / pc or ₹850–₹1,100. Leave empty and the pill shows “On request”.')}
           ${field('Status', `<select data-f="status"><option value="published"${d.status === 'published' ? ' selected' : ''}>Published (visible)</option><option value="draft"${d.status === 'draft' ? ' selected' : ''}>Draft (hidden)</option></select>`)}
         </div>
         ${field('Description (detail page)', area('description', d.description, 4))}
@@ -553,7 +555,7 @@
     const img = p.img ? `<img class="card-img" src="${esc(p.img.path)}" style="object-position:${50 + ((p.img.focal_x || .5) - .5) * 100}% ${50 + ((p.img.focal_y || .5) - .5) * 100}%">`
       : `<div class="ph-frame"><svg viewBox="0 0 200 200" class="ph-svg"><rect x="6" y="6" width="188" height="188" rx="14" fill="none" stroke="currentColor" stroke-width="1.4"/><text x="100" y="98" text-anchor="middle" font-family="Georgia,serif" font-size="16" fill="currentColor" stroke="none">${esc(p.code || 'CODE')}</text><text x="100" y="118" text-anchor="middle" font-size="8" fill="currentColor" stroke="none">PHOTO PENDING — UPLOAD IN ADMIN</text></svg></div>`;
     return `<article class="p-card"><div class="p-card-media">${p.badge && p.badge !== 'None' ? `<span class="card-badge">${esc(p.badge)}</span>` : ''}${img}</div>
-      <div class="p-card-body"><p class="p-code">${esc(p.code || 'CODE')}</p><h3 class="p-title">${esc(p.name || 'Product name')}</h3>
+      <div class="p-card-body"><div class="p-code-row"><p class="p-code">${esc(p.code || 'CODE')}</p><span class="p-price${p.price ? '' : ' on-req'}">${esc(p.price || 'On request')}</span></div><h3 class="p-title">${esc(p.name || 'Product name')}</h3>
       <div class="p-specs"><span class="spec-line">Material: ${esc(p.material || '—')}</span><span class="spec-line">Size: ${esc(p.size || '—')}</span><span class="spec-line">MOQ: ${esc(p.moq || '—')}</span></div></div>
       <div class="p-card-foot"><span class="btn btn-crimson btn-block">Send Enquiry</span></div></article>`;
   }
@@ -769,13 +771,25 @@
   /* ───────────── catalogue & pdf ───────────── */
   function sCatalogue(c) {
     const cat = STATE.settings.catalogue || {};
+    const cov = STATE.settings.catalogue_cover || {};
     c.innerHTML = `<div class="agrid two">
+      <div class="acard"><h3>🎨 Catalogue Cover Page (front of every PDF)</h3>
+        <p class="hint">Your designed cover is placed as <b>page 1</b> of the auto-generated catalogue — the full catalogue <i>and</i> every per-range catalogue. Current cover: ${cov.path ? `<a href="${esc(cov.path)}" target="_blank">${esc(cov.path)}</a>` : '<b>none set</b> — the built-in generated cover is used instead.'} ${cov.note ? `<br><i>${esc(cov.note)}</i>` : ''}</p>
+        <div class="uploader" id="covUp"><b>📤 Upload / replace cover page (PDF, A4)</b><input type="file" id="covFile" accept="application/pdf" hidden></div>
+        ${cov.path ? '<button class="abtn danger" id="covRm" style="margin-top:10px">Remove cover (fall back to generated page 1)</button>' : ''}
+      </div>
       <div class="acard"><h3>📄 Master Wholesale Catalogue PDF</h3>
-        <p class="hint">Visitors get it at <b>/catalogue/latest</b>. Current file: ${cat.path ? `<a href="${esc(cat.path)}" target="_blank">${esc(cat.path)}</a>` : 'none uploaded yet (visitors see a request form).'} ${cat.note ? `<br><i>${esc(cat.note)}</i>` : ''}</p>
+        <p class="hint">Optional override for <b>/catalogue/latest</b>. If set, visitors download THIS file instead of the auto-generated one (your cover page is not added to it). Current file: ${cat.path ? `<a href="${esc(cat.path)}" target="_blank">${esc(cat.path)}</a>` : 'none — the auto-generated catalogue is served.'} ${cat.note ? `<br><i>${esc(cat.note)}</i>` : ''}</p>
         <div class="uploader" id="catUp"><b>📤 Upload master catalogue PDF</b><input type="file" id="catFile" accept="application/pdf" hidden></div>
+      </div></div>
+      <div class="agrid two" style="margin-top:18px">
+      <div class="acard"><h3>🧺 Download Buttons Per Product Range</h3>
+        <p class="hint">The Products page shows a download pill for <b>every category automatically</b> — add a category and its “Download catalogue” button appears with no extra work. Live links:</p>
+        <ul>${STATE.categories.map((cc) => `<li><a href="/catalogue/latest?cat=${encodeURIComponent(cc.slug)}" target="_blank">${esc(cc.name)}</a> <span class="hint" style="font-size:10px">(/catalogue/latest?cat=${esc(cc.slug)})</span></li>`).join('') || '<li class="hint">No categories yet.</li>'}
+        <li><a href="/catalogue/latest" target="_blank">All categories (full catalogue)</a></li></ul>
       </div>
       <div class="acard"><h3>🖨 Auto PDF Spec Sheets</h3>
-        <p class="hint">Every product automatically gets a printable A4 spec sheet with your logo, specs, MOQ and contact details — no setup needed.</p>
+        <p class="hint">Every product automatically gets a printable A4 spec sheet with your logo, specs, price, MOQ and contact details — no setup needed.</p>
         <ul>${STATE.products.slice(0, 6).map((p) => `<li><a href="/products/${esc(p.code)}/spec-sheet" target="_blank">${esc(p.code)} — printable A4</a> · <a href="/products/${esc(p.code)}/spec-sheet.pdf" target="_blank">PDF</a></li>`).join('')}</ul>
       </div></div>`;
     $('#catUp').onclick = () => $('#catFile').click();
@@ -784,6 +798,19 @@
       const fd = new FormData(); fd.append('file', f);
       await api('/api/admin/catalogue', { method: 'POST', body: fd });
       toast('Catalogue uploaded ✔ (live immediately).'); await refresh();
+    };
+    $('#covUp').onclick = () => $('#covFile').click();
+    $('#covFile').onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const fd = new FormData(); fd.append('file', f);
+      await api('/api/admin/catalogue-cover', { method: 'POST', body: fd });
+      toast('Cover page updated ✔ (live in all catalogue PDFs).'); await refresh();
+    };
+    const rm = $('#covRm');
+    if (rm) rm.onclick = async () => {
+      if (!confirm('Remove your uploaded cover page? Catalogues will fall back to the generated page 1.')) return;
+      await api('/api/admin/catalogue-cover', { method: 'DELETE' });
+      toast('Cover removed.'); await refresh();
     };
   }
 

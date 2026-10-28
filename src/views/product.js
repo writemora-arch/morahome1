@@ -31,7 +31,10 @@ function productBody(p) {
         ${thumbs}
       </div>
       <div class="product-info">
-        <p class="p-code large">${esc(p.code)}</p>
+        <div class="p-code-row large">
+          <p class="p-code large">${esc(p.code)}</p>
+          <span class="p-price large${p.price ? '' : ' on-req'}">${esc(p.price || 'On request')}</span>
+        </div>
         <h1 class="product-title">${esc(p.name)}</h1>
         ${ornament()}
         <div class="p-specs detail-specs">
@@ -56,6 +59,7 @@ function productBody(p) {
             <tbody>
               <tr><th>Product Code</th><td>${esc(p.code)}</td></tr>
               <tr><th>Category</th><td>${esc(cat ? cat.name : '—')}</td></tr>
+              ${p.price ? `<tr><th>Wholesale Price</th><td>${esc(p.price)}</td></tr>` : ''}
               ${specs.map((s) => `<tr><th>${esc(s.k)}</th><td>${esc(s.v)}</td></tr>`).join('')}
               <tr><th>Pricing</th><td>${p.price_on_request ? 'Price on request — share your quantity for a wholesale quote.' : 'Contact us for pricing.'}</td></tr>
             </tbody>

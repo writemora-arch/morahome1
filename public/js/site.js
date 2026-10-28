@@ -171,14 +171,42 @@
 
   /* ---------- WhatsApp modal ---------- */
   const waPreview = $('#waPreview');
+  let waFound = null;          // { code, name, description, price } from /api/product-lookup
+  let waLookupTimer = null;
+  function waLookup(raw) {
+    const chip = $('#waLookupChip');
+    const code = norm(raw);
+    if (code.length < 2) { waFound = null; if (chip) chip.hidden = true; return; }
+    clearTimeout(waLookupTimer);
+    waLookupTimer = setTimeout(async () => {
+      try {
+        const r = await fetch('/api/product-lookup?code=' + encodeURIComponent(code));
+        if (!r.ok) { waFound = null; if (chip) chip.hidden = true; return; }
+        waFound = await r.json();
+        if (chip) {
+          chip.hidden = false;
+          chip.textContent = `✔ ${waFound.name} (${waFound.code})${waFound.price ? ' · ' + waFound.price : ''} — details will be added to your message`;
+        }
+      } catch (e) { waFound = null; if (chip) chip.hidden = true; }
+      fillWaPreview(waForm);
+    }, 300);
+  }
   function fillWaPreview(form) {
+    if (!form || !waPreview) return;
     const f = new FormData(form);
     const tpl = M.waTemplate || 'Hello MORA HOME! I am {name} from {company}. I am interested in {product} (Code: {code}). Please share wholesale pricing and MOQ details.';
-    waPreview.value = tpl
+    const rawProduct = f.get('product') || '';
+    const productLabel = waFound ? `${waFound.name} (${waFound.code})` : rawProduct;
+    let msg = tpl
       .replace('{name}', f.get('name') || '…').replace('{company}', f.get('company') || '—')
-      .replace('{product}', f.get('product') || 'your products').replace('{code}', (f.get('product') || '').match(/[A-Z]{2}-?\d+/i)?.[0] || '—');
+      .replace('{product}', productLabel || 'your products').replace('{code}', waFound ? waFound.code : ((rawProduct || '').match(/[A-Z]{2}-?\d+/i) || [])[0] || '—');
+    /* auto-append the product description when a valid code was entered */
+    if (waFound && waFound.description) msg += `\n\nProduct details — ${waFound.name} (${waFound.code}): ${waFound.description}`;
+    waPreview.value = msg;
   }
   const waForm = $('#waForm');
+  const waProductInput = $('#waProductInput');
+  waProductInput && waProductInput.addEventListener('input', () => waLookup(waProductInput.value));
   document.addEventListener('click', (e) => {
     const w = e.target.closest('.wa-open, #dockWhatsapp');
     if (w && waForm) {
@@ -264,7 +292,10 @@
           <a class="card-media-link" href="/products/${encodeURIComponent(p.code)}">${img}</a>
         </div>
         <div class="p-card-body">
-          <p class="p-code">${esc(p.code)}</p>
+          <div class="p-code-row">
+            <p class="p-code">${esc(p.code)}</p>
+            <span class="p-price${p.price ? '' : ' on-req'}">${esc(p.price || 'On request')}</span>
+          </div>
           <h3 class="p-title"><a href="/products/${encodeURIComponent(p.code)}">${esc(p.name)}</a></h3>
           <div class="p-specs">
             <span class="spec-line">Material: ${esc(p.material || '—')}</span>

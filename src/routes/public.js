@@ -12,7 +12,7 @@ const { productsBody } = require('../views/products');
 const { productBody } = require('../views/product');
 const { aboutBody, contactBody, legalBody } = require('../views/pages');
 const { specSheetHtml } = require('../views/specsheet');
-const { specPdf, cataloguePdf } = require('../lib/pdf');
+const { specPdf, cataloguePdf, mergeCover } = require('../lib/pdf');
 const { absFromRel } = require('../lib/media');
 const ratelimit = require('../lib/ratelimit');
 
@@ -181,6 +181,15 @@ function productLd(p, origin, firstImagePath) {
     offerCount: 1,
   };
   if (moqNum) offers.eligibleQuantity = { '@type': 'QuantitativeValue', minValue: moqNum, unitCode: 'C62' };
+  // Real price data when the admin entered one ("₹1,249 / pc" or "₹850–₹1,100").
+  const priceNums = (String(p.price || '').match(/\d[\d,]*(?:\.\d+)?/g) || [])
+    .slice(0, 2)
+    .map((s) => parseFloat(s.replace(/,/g, '')))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (priceNums.length) {
+    offers.lowPrice = Math.min(...priceNums);
+    offers.highPrice = Math.max(...priceNums);
+  }
   const ld = {
     '@context': 'https://schema.org', '@type': 'Product',
     sku: p.code, mpn: p.code,
@@ -259,45 +268,96 @@ Object.entries(LEGAL).forEach(([url, [title, paras, desc]]) => {
   });
 });
 
-/* Catalogue (audit H2): serve the uploaded master PDF when present; otherwise
-   auto-generate a real wholesale catalogue (cover + one spec page per published
-   product) so the "Download Catalogue" button is never a dead end.
-   The generated PDF is cached in memory and rebuilt whenever products change. */
-let catCache = { sig: '', buf: null, building: null };
-function catalogueSignature() {
-  const row = db.get("SELECT COUNT(*) c, MAX(updated_at) m FROM products WHERE status = 'published'");
-  return `${row ? row.c : 0}|${row && row.m ? row.m : ''}`;
+/* Catalogue (audit H2 + range catalogues): serves the uploaded master PDF when
+   present; otherwise auto-generates a branded wholesale catalogue — designed
+   cover page (admin-uploadable) merged in front, then one spec page per
+   published product. ?cat=<slug> produces a single-range catalogue.
+   Cached in memory; rebuilt when products or the cover change. */
+const catCache = new Map(); // key → { sig, buf, building }
+function catalogueSignature(catSlug) {
+  const row = catSlug
+    ? db.get("SELECT COUNT(*) c, MAX(updated_at) m FROM products WHERE status = 'published' AND category_slug = ?", [catSlug])
+    : db.get("SELECT COUNT(*) c, MAX(updated_at) m FROM products WHERE status = 'published'");
+  let coverM = '';
+  const cov = settings.get('catalogue_cover', 'live') || {};
+  if (cov.path) {
+    const abs = absFromRel(cov.path);
+    if (fs.existsSync(abs)) coverM = String(fs.statSync(abs).mtimeMs);
+  }
+  return `${row ? row.c : 0}|${row && row.m ? row.m : ''}|${coverM}`;
+}
+function coverBuffer() {
+  const cov = settings.get('catalogue_cover', 'live') || {};
+  if (!cov.path) return null;
+  const abs = absFromRel(cov.path);
+  if (!fs.existsSync(abs)) return null;
+  try { return fs.readFileSync(abs); } catch { return null; }
+}
+async function buildCatalogue(catSlug) {
+  const sig = catalogueSignature(catSlug);
+  const key = catSlug || '__all';
+  let e = catCache.get(key);
+  if (!e || e.sig !== sig || !e.buf) {
+    if (!e || !e.building) {
+      const promise = (async () => {
+        const cover = coverBuffer();
+        const body = await cataloguePdf(ctx('live'), { catSlug: catSlug || undefined, includeCover: !cover });
+        return cover ? mergeCover(cover, body) : body;
+      })();
+      e = { sig, buf: (e && e.buf) || null, building: promise };
+      catCache.set(key, e);
+      promise.then((buf) => { const cur = catCache.get(key); catCache.set(key, { sig, buf, building: null }); })
+        .catch((err) => { catCache.set(key, { sig: '', buf: null, building: null }); console.error('[catalogue] generation failed:', err.message); });
+    }
+    await e.building;
+    e = catCache.get(key);
+  }
+  return e && e.buf ? e.buf : null;
 }
 router.get('/catalogue/latest', async (req, res) => {
   const cat = settings.get('catalogue', 'live') || {};
-  if (cat.path) {
+  const catSlug = String(req.query.cat || '').trim();
+  let catRow = null;
+  if (catSlug) {
+    catRow = db.get('SELECT * FROM categories WHERE slug = ? AND visible = 1', [catSlug]);
+    if (!catRow) return res.status(404).send('Unknown product range.');
+    const n = db.get("SELECT COUNT(*) c FROM products WHERE status = 'published' AND category_slug = ?", [catSlug]);
+    if (!n || !n.c) return res.status(404).send('No published products in this range yet.');
+  }
+  if (cat.path && !catSlug) {
     const abs = absFromRel(cat.path);
     if (fs.existsSync(abs)) {
       if (req.query.dl) return res.download(abs, 'MORA-HOME-Catalogue.pdf');   // forces download
       return res.type('pdf').sendFile(abs);
     }
   }
-  const sig = catalogueSignature();
-  const published = parseInt(sig, 10) || 0;
-  if (published > 0) {
-    try {
-      if (catCache.sig !== sig || !catCache.buf) {
-        if (!catCache.building) {
-          catCache.building = cataloguePdf(ctx('live'))
-            .then((buf) => { catCache = { sig, buf, building: null }; return buf; })
-            .catch((e) => { catCache.building = null; throw e; });
-        }
-        await catCache.building;
-      }
-      if (catCache.buf) {
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Cache-Control', 'public, max-age=3600');
-        if (req.query.dl) res.setHeader('Content-Disposition', 'attachment; filename="MORA-HOME-Wholesale-Catalogue.pdf"');
-        else res.setHeader('Content-Disposition', 'inline; filename="MORA-HOME-Wholesale-Catalogue.pdf"');
-        return res.send(catCache.buf);
-      }
-    } catch (e) { console.error('[catalogue] generation failed:', e.message); /* fall through to request page */ }
+  const publishedTotal = db.get("SELECT COUNT(*) c FROM products WHERE status = 'published'");
+  if (!catSlug && (!publishedTotal || !publishedTotal.c)) {
+    const c = ctx('live');
+    return res.send(layout({
+      ...c, seoTitle: 'Wholesale Catalogue — MORA HOME', seoDesc: 'Request the MORA HOME wholesale catalogue PDF with current ranges, MOQ and bulk pricing — sent within one working day on WhatsApp or email.',
+      page: '', bodyHtml: `<section class="section"><div class="container catalogue-fallback">
+        <img class="contact-crest" src="${c.brand.crestPath}" alt="" width="1400" height="1082">
+        <h1 class="page-title">Wholesale Catalogue</h1>
+        <p class="section-intro">The PDF catalogue is being updated. Request it on WhatsApp or email and we will send the latest edition within one working day.</p>
+        <div class="contact-actions">
+          <button class="btn btn-whatsapp wa-open" type="button">Chat on WhatsApp</button>
+          <a class="btn btn-crimson" href="mailto:${c.contact.email1}?subject=Catalogue%20Request">Request by Email</a>
+        </div></div></section>`,
+    }));
   }
+  try {
+    const buf = await buildCatalogue(catSlug || null);
+    if (buf) {
+      const fname = catRow
+        ? `MORA-HOME-${catRow.name.replace(/[^a-z0-9]+/gi, '-')}-Range-Catalogue.pdf`
+        : 'MORA-HOME-Wholesale-Catalogue.pdf';
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader('Content-Disposition', `${req.query.dl ? 'attachment' : 'inline'}; filename="${fname}"`);
+      return res.send(buf);
+    }
+  } catch (e) { console.error('[catalogue] generation failed:', e.message); /* fall through */ }
   const c = ctx('live');
   res.send(layout({
     ...c, seoTitle: 'Wholesale Catalogue — MORA HOME', seoDesc: 'Request the MORA HOME wholesale catalogue PDF with current ranges, MOQ and bulk pricing — sent within one working day on WhatsApp or email.',
@@ -310,6 +370,17 @@ router.get('/catalogue/latest', async (req, res) => {
         <a class="btn btn-crimson" href="mailto:${c.contact.email1}?subject=Catalogue%20Request">Request by Email</a>
       </div></div></section>`,
   }));
+});
+
+/* Public product lookup — powers the WhatsApp modal's auto product details */
+router.get('/api/product-lookup', (req, res) => {
+  const q = require('../render').normCode(req.query.code);
+  if (!q || q.length < 2) return res.status(404).json({ error: 'Not found' });
+  let p = db.get("SELECT code, name, description, price FROM products WHERE status = 'published' AND REPLACE(REPLACE(UPPER(code), '-', ''), ' ', '') = ?", [q]);
+  if (!p) p = db.get("SELECT code, name, description, price FROM products WHERE status = 'published' AND REPLACE(REPLACE(UPPER(code), '-', ''), ' ', '') LIKE ?", ['%' + q]);
+  if (!p) return res.status(404).json({ error: 'Not found' });
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.json({ code: p.code, name: p.name, description: String(p.description || '').slice(0, 400), price: p.price || '' });
 });
 
 /* ---------------- public API ---------------- */

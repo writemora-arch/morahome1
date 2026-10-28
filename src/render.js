@@ -99,7 +99,10 @@ function productCard(p, imgs = []) {
       <a class="card-media-link" href="/products/${encodeURIComponent(p.code)}" aria-label="View ${esc(p.name)}">${productImage(p, imgs)}</a>
     </div>
     <div class="p-card-body">
-      <p class="p-code">${esc(p.code)}</p>
+      <div class="p-code-row">
+        <p class="p-code">${esc(p.code)}</p>
+        <span class="p-price${p.price ? '' : ' on-req'}" title="${p.price ? 'Wholesale price' : 'Price on request'}">${esc(p.price || 'On request')}</span>
+      </div>
       <h3 class="p-title"><a href="/products/${encodeURIComponent(p.code)}">${esc(p.name)}</a></h3>
       <div class="p-specs">
         <span class="spec-line">Material: ${esc(p.material || '—')}</span>

@@ -34,6 +34,7 @@ function specSheetHtml(p, ctx) {
         <tr><th>Product Code</th><td>${esc(p.code)}</td></tr>
         <tr><th>Category</th><td>${esc(cat ? cat.name : '—')}</td></tr>
         ${p.badge ? `<tr><th>Badge</th><td>${esc(p.badge)}</td></tr>` : ''}
+        ${p.price ? `<tr><th>Wholesale Price</th><td>${esc(p.price)}</td></tr>` : ''}
         <tr><th>Material</th><td>${esc(p.material)}</td></tr>
         <tr><th>Size</th><td>${esc(p.size)}</td></tr>
         <tr><th>MOQ</th><td>${esc(p.moq)}</td></tr>

@@ -59,7 +59,8 @@ function modals(contact, waTemplate) {
           <label>Your name<input name="name" required placeholder="e.g. Rahul Verma"></label>
           <label>Company<input name="company" placeholder="e.g. Verma &amp; Sons"></label>
         </div>
-        <label>Interested in<input name="product" placeholder="Product name or code (optional)"></label>
+        <label>Interested in<input name="product" id="waProductInput" placeholder="Product name or code (optional)"></label>
+        <div class="wa-lookup-chip" id="waLookupChip" hidden></div>
         <label>Message preview<textarea name="preview" rows="4" id="waPreview" readonly></textarea></label>
         <button class="btn btn-whatsapp btn-block" type="submit">${icon('whatsapp', 18)} Open WhatsApp Chat</button>
         <p class="form-note">Opening WhatsApp also saves this lead in Admin → Leads Inbox, so nothing is ever lost.</p>

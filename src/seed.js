@@ -26,7 +26,7 @@ const CATEGORIES = [
 const PRODUCTS = [
   {
     code: 'MH-2017', name: 'Festive Diya & Tealight Hamper', badge: 'Diwali Gifting', category_slug: 'pooja-items',
-    material: 'Brass', size: 'Box 30 × 22 × 10 cm', moq: '50 pcs', featured: 1,
+    material: 'Brass', size: 'Box 30 × 22 × 10 cm', moq: '50 pcs', price: '₹1,249 / set', featured: 1,
     description: 'A festive hamper of hand-finished brass diyas and tealight holders, presented in a rigid gift box with sleeve. Ideal for Diwali corporate gifting and return gifting programmes.',
     specs: [
       { k: 'Grade', v: 'High-polish brass, lacquer protected' }, { k: 'Finish', v: 'Mirror polish with antique edges' },
@@ -37,7 +37,7 @@ const PRODUCTS = [
   },
   {
     code: 'MH-2020', name: 'Wooden Dry-Fruit Tray with Brass Bowls', badge: 'Best Seller', category_slug: 'serveware-utensils',
-    material: 'Wood, Brass', size: 'Tray 28 × 28 × 6 cm', moq: '40 pcs', featured: 1,
+    material: 'Wood, Brass', size: 'Tray 28 × 28 × 6 cm', moq: '40 pcs', price: '₹1,850 / pc', featured: 1,
     description: 'A handcrafted mango-wood serving tray fitted with four removable brass bowls — a timeless centrepiece for festive hosting and premium gifting.',
     specs: [
       { k: 'Grade', v: 'Seasoned mango wood, food-safe lacquer' }, { k: 'Finish', v: 'Natural wood stain, polished brass' },
@@ -48,7 +48,7 @@ const PRODUCTS = [
   },
   {
     code: 'MH-2021', name: 'Brass & Steel Desk Gift Set', badge: 'Corporate Gifting', category_slug: 'corporate-gifting',
-    material: 'Brass, Steel', size: 'Box 24 × 18 × 8 cm', moq: '100 pcs', featured: 1,
+    material: 'Brass, Steel', size: 'Box 24 × 18 × 8 cm', moq: '100 pcs', price: '₹2,400–₹2,900', featured: 1,
     description: 'An executive desk set with brass pen stand, steel paper tray and card holder — delivered in a branded sleeve for corporate gifting calendars.',
     specs: [
       { k: 'Grade', v: 'Brass + food-grade stainless steel' }, { k: 'Finish', v: 'Brushed steel, gloss brass' },
@@ -59,7 +59,7 @@ const PRODUCTS = [
   },
   {
     code: 'MH-2022', name: 'Mini Brass Diya Return Gift', badge: 'Occasion & Return Gifting', category_slug: 'pooja-items',
-    material: 'Brass', size: 'Diya 6 × 6 × 3 cm', moq: '100 pcs', featured: 1,
+    material: 'Brass', size: 'Diya 6 × 6 × 3 cm', moq: '100 pcs', price: '₹149 / pc', featured: 1,
     description: 'A delicate mini brass diya packed in a organza pouch and keepsake box — the classic wedding and return-gifting favourite at bulk-friendly pricing.',
     specs: [
       { k: 'Grade', v: 'Solid brass, hand-spun' }, { k: 'Finish', v: 'Traditional polish' },
@@ -70,7 +70,7 @@ const PRODUCTS = [
   },
   {
     code: 'MH-2023', name: 'Steel & Wood Serving Duo', badge: 'New Arrival', category_slug: 'kitchenware',
-    material: 'Steel, Wood', size: 'Board 34 × 16 × 2 cm', moq: '60 pcs', featured: 0,
+    material: 'Steel, Wood', size: 'Board 34 × 16 × 2 cm', moq: '60 pcs', price: '₹899–₹1,150', featured: 0,
     description: 'A stainless-steel serving board paired with a acacia-wood platter — designed for modern cafés, homeware retailers and gifting combos.',
     specs: [
       { k: 'Grade', v: 'SS-304 food grade + acacia wood' }, { k: 'Finish', v: 'Satin steel, oiled wood' },
@@ -81,7 +81,7 @@ const PRODUCTS = [
   },
   {
     code: 'MH-2024', name: 'Brass Keepsake Box', badge: 'Best Seller', category_slug: 'home-decor',
-    material: 'Brass', size: 'Box 18 × 12 × 9 cm', moq: '50 pcs', featured: 1,
+    material: 'Brass', size: 'Box 18 × 12 × 9 cm', moq: '50 pcs', price: '₹1,650 / pc', featured: 1,
     description: 'An heirloom-quality brass keepsake box with hand-etched lid motif — jewellery, pooja storage or a premium gift box for brands.',
     specs: [
       { k: 'Grade', v: 'Heavy-gauge brass sheet' }, { k: 'Finish', v: 'Hand-etched antique finish' },
@@ -147,6 +147,13 @@ async function seed(force = false) {
     const src = path.join(BRAND_SRC, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(db.paths.UPLOAD_DIR, 'brand', f));
   }
+  /* designed catalogue cover page → live upload folder */
+  const coverSrc = path.join(BRAND_SRC, 'catalogue-cover.pdf');
+  if (fs.existsSync(coverSrc)) {
+    const coverDir = path.join(db.paths.UPLOAD_DIR, 'catalogue-cover');
+    fs.mkdirSync(coverDir, { recursive: true });
+    fs.copyFileSync(coverSrc, path.join(coverDir, 'catalogue-cover.pdf'));
+  }
 
   /* theme + settings */
   db.setSettingBoth('theme', DEFAULT_THEME);
@@ -159,6 +166,9 @@ async function seed(force = false) {
   const salt = crypto.randomBytes(8).toString('hex');
   db.setSettingBoth('auth', { user: 'admin', salt, hash: hashPass('mora123', salt) });
   db.setSettingBoth('catalogue', { path: '', note: 'No catalogue uploaded yet — visitors will see a request form instead.' });
+  db.setSettingBoth('catalogue_cover', fs.existsSync(path.join(BRAND_SRC, 'catalogue-cover.pdf'))
+    ? { path: '/uploads/catalogue-cover/catalogue-cover.pdf', note: 'Designed cover page (Admin → Catalogue to replace or remove).' }
+    : { path: '', note: '' });
 
   /* sections (draft + live identical at seed time) */
   SECTIONS.forEach((s, i) => {
@@ -172,9 +182,9 @@ async function seed(force = false) {
 
   /* demo products */
   for (const p of PRODUCTS) {
-    const r = db.run(`INSERT INTO products (code,name,badge,category_slug,material,size,moq,description,specs_json,price_on_request,featured,status,demo)
-      VALUES (?,?,?,?,?,?,?,?,?,1,?,'published',1)`,
-      [p.code, p.name, p.badge, p.category_slug, p.material, p.size, p.moq, p.description, JSON.stringify(p.specs), p.featured]);
+    const r = db.run(`INSERT INTO products (code,name,badge,category_slug,material,size,moq,price,description,specs_json,price_on_request,featured,status,demo)
+      VALUES (?,?,?,?,?,?,?,?,?,?,1,?,'published',1)`,
+      [p.code, p.name, p.badge, p.category_slug, p.material, p.size, p.moq, p.price || '', p.description, JSON.stringify(p.specs), p.featured]);
     void r;
   }
   db.persist(true);
@@ -191,9 +201,9 @@ function seedDemoProducts() {
   let added = 0;
   for (const p of PRODUCTS) {
     if (db.get('SELECT id FROM products WHERE code = ?', [p.code])) continue;
-    db.run(`INSERT INTO products (code,name,badge,category_slug,material,size,moq,description,specs_json,price_on_request,featured,status,demo)
-      VALUES (?,?,?,?,?,?,?,?,?,1,?,'published',1)`,
-      [p.code, p.name, p.badge, p.category_slug, p.material, p.size, p.moq, p.description, JSON.stringify(p.specs), p.featured]);
+    db.run(`INSERT INTO products (code,name,badge,category_slug,material,size,moq,price,description,specs_json,price_on_request,featured,status,demo)
+      VALUES (?,?,?,?,?,?,?,?,?,?,1,?,'published',1)`,
+      [p.code, p.name, p.badge, p.category_slug, p.material, p.size, p.moq, p.price || '', p.description, JSON.stringify(p.specs), p.featured]);
     added++;
   }
   db.setSettingBoth('demo_mode', true);

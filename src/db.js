@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS products (
   material        TEXT NOT NULL DEFAULT '',
   size            TEXT NOT NULL DEFAULT '',
   moq             TEXT NOT NULL DEFAULT '',
+  price           TEXT NOT NULL DEFAULT '',
   description     TEXT NOT NULL DEFAULT '',
   specs_json      TEXT NOT NULL DEFAULT '[]',
   price_on_request INTEGER NOT NULL DEFAULT 1,

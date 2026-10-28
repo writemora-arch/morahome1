@@ -30,7 +30,7 @@ function productsBody(initialCat, ctx) {
 
   const payload = prods.map((p) => ({
     id: p.id, code: p.code, name: p.name, badge: p.badge, cat: p.category_slug,
-    material: p.material, size: p.size, moq: p.moq, featured: p.featured,
+    material: p.material, size: p.size, moq: p.moq, featured: p.featured, price: p.price || '',
     created: p.created_at, img: (byId[p.id] || [])[0] || null,
   }));
 
@@ -47,6 +47,12 @@ function productsBody(initialCat, ctx) {
         <h1 class="page-title">${esc(H.title)}</h1>
         <p class="head-tagline">${esc(H.tagline)}</p>
         <p class="head-subline">${esc(H.subline)}</p>
+
+        <div class="head-cats-download" aria-label="Download range catalogues">
+          <span class="hcd-label">${icon('download', 15)} Download PDF catalogue:</span>
+          <a class="hcd-pill" href="/catalogue/latest">All Categories</a>
+          ${cats.map((c) => `<a class="hcd-pill" href="/catalogue/latest?cat=${encodeURIComponent(c.slug)}">${esc(c.name)}</a>`).join('')}
+        </div>
 
         <div class="head-make">
           <div class="head-make-top">

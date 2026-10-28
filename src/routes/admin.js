@@ -97,6 +97,7 @@ router.get('/api/admin/state', (req, res) => {
       footer: settings.get('footer', 'draft'), nav: settings.get('nav', 'draft'),
       whatsapp_template: settings.get('whatsapp_template', 'draft'), brand: settings.get('brand', 'draft'),
       catalogue: settings.get('catalogue', 'live'), demo_mode: settings.get('demo_mode', 'live'),
+      catalogue_cover: settings.get('catalogue_cover', 'live'),
       admin_user: (settings.get('auth', 'live') || {}).user,
     },
     categories: db.all('SELECT * FROM categories ORDER BY sort ASC'),
@@ -181,6 +182,7 @@ router.post('/api/admin/products', express.json(), (req, res) => {
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0)`,
     [b.code, b.name || b.code, b.badge || '', b.category_slug || '', b.material || '', b.size || '', b.moq || '', b.description || '',
       JSON.stringify(b.specs || []), b.price_on_request ? 1 : 0, b.featured ? 1 : 0, b.status || 'published']);
+  db.run('UPDATE products SET price = ? WHERE id = ?', [String(b.price || '').slice(0, 60), r.lastInsertRowid]);
   res.status(201).json({ ok: true, id: r.lastInsertRowid });
 });
 router.put('/api/admin/products/:id', express.json(), (req, res) => {
@@ -188,9 +190,10 @@ router.put('/api/admin/products/:id', express.json(), (req, res) => {
   if (!p) return res.status(404).json({ error: 'Product not found' });
   const b = req.body;
   if (b.code && db.get('SELECT id FROM products WHERE code = ? AND id != ?', [b.code, p.id])) return res.status(409).json({ error: `Product code ${b.code} already exists.` });
-  db.run(`UPDATE products SET code=?, name=?, badge=?, category_slug=?, material=?, size=?, moq=?, description=?, specs_json=?, price_on_request=?, featured=?, status=?, updated_at=datetime('now') WHERE id=?`,
+  db.run(`UPDATE products SET code=?, name=?, badge=?, category_slug=?, material=?, size=?, moq=?, description=?, specs_json=?, price=?, price_on_request=?, featured=?, status=?, updated_at=datetime('now') WHERE id=?`,
     [b.code || p.code, b.name || p.name, b.badge ?? p.badge, b.category_slug ?? p.category_slug, b.material ?? p.material, b.size ?? p.size, b.moq ?? p.moq,
       b.description ?? p.description, JSON.stringify(b.specs !== undefined ? b.specs : JSON.parse(p.specs_json || '[]')),
+      String(b.price !== undefined ? b.price : (p.price || '')).slice(0, 60),
       b.price_on_request ? 1 : 0, b.featured ? 1 : 0, b.status || p.status, p.id]);
   res.json({ ok: true });
 });
@@ -278,6 +281,20 @@ router.get('/api/admin/leads/export.csv', (req, res) => {
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename="mora-home-leads.csv"');
   res.send(lines.join('\n'));
+});
+
+/* ---------------- catalogue cover page (front page of the auto catalogue) ---- */
+router.post('/api/admin/catalogue-cover', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+  if (!/pdf$/i.test(req.file.mimetype) && !/\.pdf$/i.test(req.file.originalname)) return res.status(400).json({ error: 'Please upload a PDF file (A4 portrait works best).' });
+  media.saveFile(req.file.buffer, 'catalogue-cover', req.file.originalname).then((rel) => {
+    db.setSettingBoth('catalogue_cover', { path: rel, note: `Uploaded ${new Date().toISOString().slice(0, 10)}` });
+    res.status(201).json({ ok: true, path: rel });
+  }).catch((e) => res.status(500).json({ error: e.message }));
+});
+router.delete('/api/admin/catalogue-cover', (req, res) => {
+  db.setSettingBoth('catalogue_cover', { path: '', note: '' });
+  res.json({ ok: true });
 });
 
 /* ---------------- catalogue, password, demo ---------------- */
