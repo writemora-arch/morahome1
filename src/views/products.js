@@ -50,8 +50,8 @@ function productsBody(initialCat, ctx) {
 
         <div class="head-cats-download" aria-label="Download range catalogues">
           <span class="hcd-label">${icon('download', 15)} Download PDF catalogue:</span>
-          <a class="hcd-pill" href="/catalogue/latest">All Categories</a>
-          ${cats.map((c) => `<a class="hcd-pill" href="/catalogue/latest?cat=${encodeURIComponent(c.slug)}">${esc(c.name)}</a>`).join('')}
+          <a class="hcd-pill hcd-pill-all" href="/catalogue/latest" download="MORA-HOME-Wholesale-Catalogue.pdf" data-catalogue-download aria-label="Download PDF catalogue — All Categories">${icon('download', 14)}<span>All Categories</span></a>
+          ${cats.map((c) => `<a class="hcd-pill" href="/catalogue/latest?cat=${encodeURIComponent(c.slug)}" download="MORA-HOME-${esc(c.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/gi, '-'))}-Range-Catalogue.pdf" data-catalogue-download aria-label="Download PDF catalogue — ${esc(c.name)}">${icon('download', 14)}<span>${esc(c.name)}</span></a>`).join('')}
         </div>
 
         <div class="head-make">

@@ -283,4 +283,93 @@ async function mergeCover(coverBuf, bodyBuf) {
   return Buffer.from(await out.save());
 }
 
-module.exports = { specPdf, cataloguePdf, mergeCover };
+/** v8.3 — "Selected products" catalogue: only the products the visitor ticked
+    on the Products page. Page 1 carries the MORA HOME crest + full contact
+    header; every product shows photo (branded placeholder when pending),
+    code, name, material, size and MOQ. */
+async function selectedCataloguePdf(ctx, prods) {
+  const c = ctx.contact;
+  const crestBuf = await crestBuffer(ctx);
+  const doc = new PDFDocument({
+    size: 'A4', margin: 0,
+    info: { Title: 'MORA HOME — Selected Products Catalogue', Author: 'MORA HOME', Subject: 'Visitor-selected product shortlist' },
+  });
+  const done = collect(doc);
+  const W = doc.page.width, H = doc.page.height;
+  const L = 14 * MM, R = W - 14 * MM, CW = R - L;
+
+  const pageFooter = () => {
+    const fy = H - 14 * MM;
+    doc.moveTo(L, fy - 6).lineTo(R, fy - 6).lineWidth(0.6).strokeColor(C.line).stroke();
+    doc.font('Helvetica').fontSize(7.5).fillColor(C.muted)
+      .text(clean(`${c.phone} · WhatsApp +${c.whatsapp} · ${c.email1} · ${c.address}`), L, fy, { width: CW, lineBreak: false });
+  };
+
+  const header = (first) => {
+    const TOP = 14 * MM;
+    if (crestBuf) { try { doc.image(crestBuf, L, TOP, { width: 24 * MM }); } catch { /* skip */ } }
+    const tx = L + 24 * MM + 10;
+    doc.font('Times-Bold').fontSize(19).fillColor(C.dark)
+      .text('MORA HOME', tx, TOP + 2, { characterSpacing: 3, lineBreak: false });
+    doc.font('Helvetica').fontSize(8.5).fillColor(C.muted)
+      .text(clean(`${c.address} · ${c.phone} · ${c.email1} · WhatsApp +${c.whatsapp}`), tx, TOP + 26, { width: CW - 24 * MM - 40 * MM });
+    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(C.crimson)
+      .text('SELECTED PRODUCTS CATALOGUE', R - 62 * MM, TOP + 4, { width: 62 * MM, align: 'right', characterSpacing: 1, lineBreak: false });
+    let y = TOP + 24 * MM + 6;
+    doc.moveTo(L, y).lineTo(R, y).lineWidth(1.4).strokeColor(C.walnut).stroke();
+    if (first) {
+      doc.font('Helvetica-Oblique').fontSize(9).fillColor(C.muted)
+        .text(`Your shortlisted designs · generated ${new Date().toISOString().slice(0, 10)} · wholesale prices & custom branding on request`, L, y + 6, { width: CW, lineBreak: false });
+      y += 20;
+    } else {
+      y += 10;
+    }
+    return y + 6;
+  };
+
+  let y = header(true);
+  const PH = 40 * MM;      // square photo / placeholder block
+  const GAP = 8 * MM;
+
+  for (let i = 0; i < prods.length; i++) {
+    const p = prods[i];
+    if (y + PH > H - 22 * MM) { pageFooter(); doc.addPage(); y = header(false); }
+
+    /* photo (or neat branded placeholder when none uploaded) */
+    const img = db.get('SELECT * FROM product_images WHERE product_id = ? ORDER BY sort ASC LIMIT 1', [p.id]);
+    const buf = img ? await imageBuffer(absFromRel(img.path)) : null;   // eslint-disable-line no-await-in-loop
+    doc.roundedRect(L, y, PH, PH, 2.5 * MM).fillAndStroke(C.photoBg, C.line);
+    if (buf) {
+      try { doc.image(buf, L + 1.5 * MM, y + 1.5 * MM, { fit: [PH - 3 * MM, PH - 3 * MM], align: 'center', valign: 'center' }); } catch { /* skip */ }
+    } else {
+      doc.font('Helvetica-Bold').fontSize(11).fillColor(C.ph)
+        .text(String(p.code), L, y + PH / 2 - 10, { width: PH, align: 'center', lineBreak: false });
+      doc.font('Helvetica').fontSize(6.5).fillColor(C.ph)
+        .text('PHOTO PENDING', L, y + PH / 2 + 4, { width: PH, align: 'center', lineBreak: false });
+    }
+
+    /* facts */
+    const tx = L + PH + 8 * MM, tw = R - tx;
+    doc.font('Helvetica-Bold').fontSize(12).fillColor(C.crimson)
+      .text(String(p.code), tx, y + 1.5 * MM, { lineBreak: false });
+    doc.font('Times-Bold').fontSize(14).fillColor(C.dark)
+      .text(clean(p.name), tx, y + 7.5 * MM, { width: tw });
+    let ty = doc.y + 3 * MM;
+    doc.font('Helvetica').fontSize(10).fillColor(C.text)
+      .text(`Material:  ${clean(p.material || '—')}`, tx, ty, { width: tw });
+    ty = doc.y + 1.6 * MM;
+    doc.text(`Size:  ${clean(p.size || '—')}`, tx, ty, { width: tw });
+    ty = doc.y + 1.6 * MM;
+    doc.text(`MOQ:  ${clean(p.moq || '—')}`, tx, ty, { width: tw });
+
+    y = Math.max(y + PH, doc.y) + GAP;
+    if (i < prods.length - 1) {
+      doc.moveTo(L, y - GAP / 2).lineTo(R, y - GAP / 2).lineWidth(0.5).strokeColor(C.line).stroke();
+    }
+  }
+  pageFooter();
+  doc.end();
+  return done;
+}
+
+module.exports = { specPdf, cataloguePdf, mergeCover, selectedCataloguePdf };

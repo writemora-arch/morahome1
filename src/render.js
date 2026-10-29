@@ -96,6 +96,7 @@ function productCard(p, imgs = []) {
     <div class="p-card-media">
       ${badge}
       <button class="card-quick-add" type="button" data-add-enquiry="${esc(p.code)}" title="Add to Enquiry List" aria-label="Add ${esc(p.name)} to enquiry list">${icon('plus', 16)}</button>
+      <button class="card-select" type="button" data-select-code="${esc(p.code)}" aria-pressed="false" title="Select for Selected Catalogue" aria-label="Select ${esc(p.name)} for the selected-products catalogue">${icon('check', 16)}</button>
       <a class="card-media-link" href="/products/${encodeURIComponent(p.code)}" aria-label="View ${esc(p.name)}">${productImage(p, imgs)}</a>
     </div>
     <div class="p-card-body">

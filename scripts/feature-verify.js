@@ -66,14 +66,14 @@ async function pdfInfo(buf) { const d = await PDFDocument.load(buf, { ignoreEncr
 
   const productsHtml = await text('/products');
   ok('products: download strip rendered', productsHtml.includes('head-cats-download') && productsHtml.includes('hcd-pill'));
-  ok('products: All Categories pill', productsHtml.includes('>All Categories</a>'));
+  ok('products: All Categories pill', productsHtml.includes('hcd-pill-all') && productsHtml.includes('All Categories</span></a>'));
   const catSlugs = ['pooja-items', 'serveware-utensils', 'corporate-gifting', 'kitchenware', 'home-decor'];
   ok('products: pill for every demo range', catSlugs.every((s) => productsHtml.includes('/catalogue/latest?cat=' + s)), catSlugs.filter((s) => !productsHtml.includes('/catalogue/latest?cat=' + s)).join(','));
 
   r = await get('/catalogue/latest');
   const allBuf = Buffer.from(await r.arrayBuffer());
   ok('catalogue: full PDF served', r.status === 200 && (r.headers.get('content-type') || '').includes('application/pdf') && allBuf.slice(0, 4).toString() === '%PDF');
-  ok('catalogue: inline disposition', /inline/.test(r.headers.get('content-disposition') || ''));
+  ok('catalogue: attachment disposition (one-tap download, v8.3)', /attachment/.test(r.headers.get('content-disposition') || ''));
   const allInfo = await pdfInfo(allBuf);
   ok('catalogue: A4 pages', Math.abs(allInfo.w - 595) < 5 && Math.abs(allInfo.h - 842) < 5, JSON.stringify(allInfo));
   ok('catalogue: cover + multi-page body', allInfo.pages >= 4, 'pages=' + allInfo.pages);

@@ -835,3 +835,75 @@ html.fs-lock, html.fs-lock body { overflow:hidden; }
   .header-search input { width:clamp(200px, 24vw, 320px); }
 }
 /* ═══════════ end v8.2 ═══════════ */
+
+/* ═══════════ v8.3 — catalogue download grid · selected catalogue · single-colour logos ═══════════ */
+/* 1) Products page: label on its own line, then a neat 2-col grid (mobile) of
+      equal-width / equal-height pills; "All Categories" full-width + filled.
+      Desktop: one tidy centred row/wrap with equal spacing.            */
+.head-cats-download {
+  display:grid; grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:8px; justify-content:center; align-items:stretch; margin-top:14px;
+}
+.hcd-label { grid-column:1 / -1; display:flex; justify-content:center; }
+.hcd-pill {
+  display:flex; align-items:center; justify-content:center; gap:6px;
+  min-height:42px; padding:8px 12px; text-align:center; line-height:1.25;
+}
+.hcd-pill .icon { flex-shrink:0; }
+.hcd-pill-all {
+  grid-column:1 / -1;
+  background:#FFFDF8; border-color:#FFFDF8; color:var(--accent-crimson); font-weight:700;
+}
+.hcd-pill-all:hover { background:#f3d9c4; border-color:#f3d9c4; color:var(--accent-crimson); }
+.hcd-pill.is-loading { opacity:.75; pointer-events:none; }
+@media (min-width:721px) {
+  .head-cats-download { display:flex; flex-wrap:wrap; justify-content:center; align-items:stretch; gap:10px; }
+  .hcd-label { flex-basis:100%; }
+  .hcd-pill { min-height:44px; }
+  .hcd-pill-all { flex-basis:100%; max-width:420px; margin:0 auto; }
+}
+
+/* 2) Single-colour logo cards (header + footer): blend away any baked-in
+      background of the crest file so no inner box is ever visible.      */
+.site-header .logo-crest,
+.footer-crest-badge img { mix-blend-mode:multiply; background:transparent; }
+.footer-crest-badge img { display:block; }
+
+/* 3) Selected-products catalogue: ✓ toggle on cards + highlight + sticky bar */
+.card-select {
+  position:absolute; top:42px; right:8px; z-index:2; width:30px; height:30px; border-radius:50%;
+  border:1px solid var(--border-subtle); background:rgba(255,253,248,.96); color:var(--brand-walnut);
+  display:flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,.12);
+}
+.card-select:hover { background:var(--brand-walnut); color:#fff; }
+.card-select.on { background:var(--brand-walnut); border-color:var(--brand-walnut); color:#fff; }
+.p-card-selected { border-color:var(--brand-walnut-light, #8A6A52); box-shadow:0 0 0 2px var(--brand-walnut-light, #8A6A52); }
+.select-bar {
+  position:fixed; left:12px; right:12px; bottom:78px; z-index:89;
+  display:flex; align-items:center; gap:10px;
+  background:var(--brand-walnut-dark); color:#fff;
+  border-radius:14px; padding:10px 14px;
+  box-shadow:0 10px 28px rgba(0,0,0,.32);
+}
+.select-bar[hidden] { display:none; }
+.sel-count { font-weight:700; font-size:calc(13.5px * var(--size-scale)); margin-right:auto; }
+.sel-clear {
+  border:1px solid rgba(255,253,248,.45); background:transparent; color:#FFFDF8;
+  border-radius:999px; padding:7px 14px; font-size:calc(12.5px * var(--size-scale)); font-weight:600; cursor:pointer;
+}
+.sel-clear:hover { background:rgba(255,253,248,.14); }
+.sel-download {
+  border:0; background:var(--accent-crimson); color:#fff;
+  border-radius:999px; padding:8px 16px; font-size:calc(12.5px * var(--size-scale)); font-weight:700; cursor:pointer;
+}
+.sel-download:hover { background:var(--accent-crimson-hover, #6E0000); }
+.sel-download:disabled { opacity:.7; cursor:progress; }
+/* keep the enquiry-list fab clear of the selection bar */
+body.has-selbar .enq-fab-counter { bottom:134px; }
+/* selection-mode hint above the grid */
+.select-hint {
+  background:var(--bg-secondary); border:1px solid var(--border-subtle); border-radius:12px;
+  padding:10px 14px; margin:0 0 12px; font-size:calc(13px * var(--size-scale)); color:var(--text-primary);
+}
+.select-hint b { color:var(--accent-crimson); }
+/* ═══════════ end v8.3 ═══════════ */

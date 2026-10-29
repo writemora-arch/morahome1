@@ -88,9 +88,10 @@ function modals(contact, waTemplate) {
 function footerHtml(brand, theme, footer, contact) {
   /* social links (audit M7): rendered only when the owner fills them in Admin → Footer & Social */
   const soc = (footer && footer.socials) || {};
-  const waDigits = String((contact && contact.whatsapp) || '').replace(/\D/g, '');
+  /* NOTE: WhatsApp intentionally NOT listed here — the round WA icon under the
+     footer logo/tagline was removed on owner request. The floating green
+     WhatsApp dock button (bottom-right) is untouched. */
   const SOCIALS = [
-    ['whatsapp', 'WhatsApp', soc.whatsapp || (waDigits ? `https://wa.me/${waDigits}` : '')],
     ['instagram', 'Instagram', soc.instagram],
     ['facebook', 'Facebook', soc.facebook],
     ['linkedin', 'LinkedIn', soc.linkedin],
@@ -102,7 +103,7 @@ function footerHtml(brand, theme, footer, contact) {
     <div class="container footer-grid">
       <div class="footer-brand">
         <div class="footer-crest-badge">
-          <img src="${esc(brand.crestIvoryPath || brand.crestPath || '/uploads/brand/crest-ivory.png')}" alt="MORA HOME crest" width="1400" height="1082">
+          <img src="${esc(brand.crestPath || brand.crestIvoryPath || '/uploads/brand/crest-transparent.png')}" alt="MORA HOME crest" width="1400" height="1082">
         </div>
         <p class="footer-tagline">“${esc(footer.tagline)}”</p>
         ${SOCIALS.length ? `<div class="footer-socials">${SOCIALS.map(([ic, label, u]) => `<a href="${esc(String(u).trim())}" target="_blank" rel="noopener" aria-label="${esc(label)}" title="${esc(label)}">${icon(ic, 18)}</a>`).join('')}</div>` : ''}
@@ -162,7 +163,8 @@ function drawerHtml(brand, theme, nav) {
     <div class="drawer-acts">
       <button class="btn btn-block drawer-btn-solid enquiry-open" type="button" data-code="" data-name="General wholesale enquiry">${icon('send', 16)}<span>Send Enquiry</span></button>
       <button class="btn btn-block drawer-btn-outline" type="button" data-open-list>${icon('list', 16)}<span>Enquiry List</span></button>
-      <a class="btn btn-block drawer-btn-outline" href="/catalogue/latest?dl=1">${icon('download', 16)}<span>Download Catalogue</span></a>
+      <a class="btn btn-block drawer-btn-outline" href="/products?select=1">${icon('check', 16)}<span>Download Selected Catalogue</span></a>
+      <a class="btn btn-block drawer-btn-outline" href="/catalogue/latest?dl=1" download="MORA-HOME-Wholesale-Catalogue.pdf" data-catalogue-download>${icon('download', 16)}<span>Download Catalogue</span></a>
     </div>
   </aside>`;
 }

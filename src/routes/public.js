@@ -12,7 +12,7 @@ const { productsBody } = require('../views/products');
 const { productBody } = require('../views/product');
 const { aboutBody, contactBody, legalBody } = require('../views/pages');
 const { specSheetHtml } = require('../views/specsheet');
-const { specPdf, cataloguePdf, mergeCover } = require('../lib/pdf');
+const { specPdf, cataloguePdf, mergeCover, selectedCataloguePdf } = require('../lib/pdf');
 const { absFromRel } = require('../lib/media');
 const ratelimit = require('../lib/ratelimit');
 
@@ -327,8 +327,9 @@ router.get('/catalogue/latest', async (req, res) => {
   if (cat.path && !catSlug) {
     const abs = absFromRel(cat.path);
     if (fs.existsSync(abs)) {
-      if (req.query.dl) return res.download(abs, 'MORA-HOME-Catalogue.pdf');   // forces download
-      return res.type('pdf').sendFile(abs);
+      /* v8.3: always attachment — one tap must SAVE the file (mobile Chrome
+         used to open/land on the PDF when served inline). */
+      return res.download(abs, 'MORA-HOME-Catalogue.pdf');
     }
   }
   const publishedTotal = db.get("SELECT COUNT(*) c FROM products WHERE status = 'published'");
@@ -350,11 +351,13 @@ router.get('/catalogue/latest', async (req, res) => {
     const buf = await buildCatalogue(catSlug || null);
     if (buf) {
       const fname = catRow
-        ? `MORA-HOME-${catRow.name.replace(/[^a-z0-9]+/gi, '-')}-Range-Catalogue.pdf`
+        ? `MORA-HOME-${catRow.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/gi, '-')}-Range-Catalogue.pdf`
         : 'MORA-HOME-Wholesale-Catalogue.pdf';
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Cache-Control', 'public, max-age=3600');
-      res.setHeader('Content-Disposition', `${req.query.dl ? 'attachment' : 'inline'}; filename="${fname}"`);
+      /* v8.3: always attachment (was inline unless ?dl=1 — the root cause of
+         "clicking only opens the PDF instead of downloading it"). */
+      res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
       return res.send(buf);
     }
   } catch (e) { console.error('[catalogue] generation failed:', e.message); /* fall through */ }
@@ -381,6 +384,27 @@ router.get('/api/product-lookup', (req, res) => {
   if (!p) return res.status(404).json({ error: 'Not found' });
   res.setHeader('Cache-Control', 'public, max-age=300');
   res.json({ code: p.code, name: p.name, description: String(p.description || '').slice(0, 400), price: p.price || '' });
+});
+
+/* v8.3 — custom catalogue PDF containing ONLY the products the visitor selected
+   on the Products page (✓ button). Selection travels as product codes; the PDF
+   is built on demand with pdfkit (logo + contact header on page 1). */
+router.post('/api/selected-catalogue', express.json({ limit: '8kb' }), async (req, res) => {
+  const raw = (req.body && Array.isArray(req.body.codes)) ? req.body.codes : [];
+  const codes = raw.filter((c) => typeof c === 'string' && c.trim()).map((c) => c.trim()).slice(0, 60);
+  if (!codes.length) return res.status(400).json({ error: 'No products selected — tap ✓ on at least one product.' });
+  const ph = codes.map(() => '?').join(',');
+  const prods = db.all(`SELECT * FROM products WHERE status = 'published' AND code IN (${ph})`, codes);
+  if (!prods.length) return res.status(400).json({ error: 'None of the selected products are published any more — please refresh.' });
+  try {
+    const buf = await selectedCataloguePdf(ctx('live'), prods);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="MORA-HOME-Selected-Catalogue.pdf"');
+    res.send(buf);
+  } catch (e) {
+    console.error('[selected-catalogue] generation failed:', e.message);
+    res.status(500).json({ error: 'Could not build the PDF — please try again.' });
+  }
 });
 
 /* ---------------- public API ---------------- */

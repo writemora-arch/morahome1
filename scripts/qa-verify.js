@@ -108,7 +108,7 @@ const ok = (name, cond, extra = '') => {
   r = await fetch(BASE + '/catalogue/latest');
   const buf = Buffer.from(await r.arrayBuffer());
   ok('catalogue: auto-generated PDF served', r.status === 200 && buf.slice(0, 4).toString() === '%PDF', `type=${r.headers.get('content-type')} ${buf.slice(0,4)}`);
-  ok('catalogue: inline disposition', (r.headers.get('content-disposition') || '').includes('inline'));
+  ok('catalogue: attachment disposition (one-tap download, v8.3)', (r.headers.get('content-disposition') || '').includes('attachment'));
   r = await fetch(BASE + '/catalogue/latest?dl=1');
   ok('catalogue: ?dl=1 attachment', (r.headers.get('content-disposition') || '').includes('attachment'));
 

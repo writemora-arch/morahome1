@@ -104,6 +104,129 @@
     openEnquiry({ code: '', name: '' }, getList());
   });
 
+  /* ---------- selected-products catalogue (v8.3) ----------
+     Selection lives in localStorage so it survives page/category changes.
+     The ✓ button on each card toggles selection; the + button above it keeps
+     its original Enquiry-List behaviour (untouched). */
+  const SEL_KEY = 'moraSelectedProducts';
+  const getSel = () => { try { const v = JSON.parse(localStorage.getItem(SEL_KEY) || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; } };
+  const setSel = (l) => { localStorage.setItem(SEL_KEY, JSON.stringify(l)); };
+
+  function saveBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 4000);
+  }
+
+  /* sticky "X selected | Clear | Download PDF" bar (above the WhatsApp dock) */
+  const selBar = document.createElement('div');
+  selBar.id = 'selectBar';
+  selBar.className = 'select-bar';
+  selBar.hidden = true;
+  selBar.innerHTML = '<span class="sel-count" id="selCount">0 selected</span>'
+    + '<button type="button" class="sel-clear" id="selClear">Clear</button>'
+    + '<button type="button" class="sel-download" id="selDownload">Download PDF</button>';
+  document.body.appendChild(selBar);
+
+  function refreshSelectionUi() {
+    const sel = getSel();
+    $$('[data-select-code]').forEach((b) => {
+      const on = sel.includes(b.dataset.selectCode);
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', String(on));
+      const card = b.closest('.p-card');
+      if (card) card.classList.toggle('p-card-selected', on);
+    });
+    selBar.hidden = !sel.length;
+    document.body.classList.toggle('has-selbar', !!sel.length);
+    const cnt = $('#selCount');
+    if (cnt) cnt.textContent = `${sel.length} selected`;
+  }
+
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-select-code]');
+    if (!b) return;
+    const code = b.dataset.selectCode;
+    let sel = getSel();
+    if (sel.includes(code)) { sel = sel.filter((c) => c !== code); toast(`${code} removed from selection`); }
+    else { sel.push(code); toast(`${code} selected for your catalogue`); }
+    setSel(sel);
+    refreshSelectionUi();
+  });
+  $('#selClear').addEventListener('click', () => { setSel([]); refreshSelectionUi(); toast('Selection cleared.'); });
+  $('#selDownload').addEventListener('click', async () => {
+    const codes = getSel();
+    if (!codes.length) { toast('No products selected yet.'); return; }
+    const btn = $('#selDownload');
+    const old = btn.textContent;
+    btn.textContent = 'Downloading…'; btn.disabled = true;
+    try {
+      const r = await fetch('/api/selected-catalogue', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codes }),
+      });
+      if (!r.ok) {
+        let m = ''; try { m = (await r.json()).error || ''; } catch (err) { /* non-JSON */ }
+        throw new Error(m || 'Could not build the PDF — please try again.');
+      }
+      saveBlob(await r.blob(), 'MORA-HOME-Selected-Catalogue.pdf');
+      toast('✔ Your selected catalogue is downloading.');
+    } catch (err) {
+      toast((err && err.message) || 'Download failed — please try again.');
+    } finally {
+      btn.textContent = old; btn.disabled = false;
+    }
+  });
+
+  /* ---------- one-tap PDF catalogue downloads (v8.3) ----------
+     Fetch as blob + programmatic <a download> so a single tap saves the file
+     instead of navigating to / opening the PDF viewer (mobile Chrome fix).
+     href + download attribute remain as the no-JS fallback. */
+  document.addEventListener('click', (e) => {
+    const link = e.target.closest('[data-catalogue-download]');
+    if (!link) return;
+    e.preventDefault();
+    if (link.classList.contains('is-loading')) return;
+    const href = link.getAttribute('href');
+    const fname = link.getAttribute('download') || 'MORA-HOME-Catalogue.pdf';
+    const label = link.querySelector('span') || link;
+    const oldHtml = label.innerHTML;
+    label.textContent = 'Downloading…';
+    link.classList.add('is-loading');
+    link.setAttribute('aria-busy', 'true');
+    fetch(href, { credentials: 'same-origin' })
+      .then((r) => {
+        const ct = r.headers.get('content-type') || '';
+        if (!r.ok || ct.indexOf('pdf') === -1) throw new Error(r.ok ? 'Unexpected response — please try again.' : `Catalogue unavailable (HTTP ${r.status}).`);
+        return r.blob();
+      })
+      .then((blob) => { saveBlob(blob, fname); toast('✔ Catalogue download started.'); })
+      .catch((err) => { toast((err && err.message) || 'Download failed — please try again.'); })
+      .finally(() => {
+        label.innerHTML = oldHtml;
+        link.classList.remove('is-loading');
+        link.removeAttribute('aria-busy');
+      });
+  });
+
+  /* ---------- selection mode (?select=1 from the sidebar button) ---------- */
+  if ($('#productGrid') && new URLSearchParams(location.search).has('select')) {
+    const hint = document.createElement('div');
+    hint.className = 'select-hint';
+    hint.setAttribute('role', 'status');
+    hint.innerHTML = '<b>Selection mode:</b> tap the ✓ button on products to select them — then use the bottom bar to download your custom PDF catalogue.';
+    const gridEl = $('#productGrid');
+    gridEl.parentNode.insertBefore(hint, gridEl);
+    setTimeout(() => {
+      const y = gridEl.getBoundingClientRect().top + window.scrollY - 150;
+      window.scrollTo({ top: Math.max(y, 0), behavior: 'smooth' });
+    }, 150);
+  }
+
   /* ---------- modals ---------- */
   function openModal(id) { const m = $('#' + id); if (m) { m.hidden = false; document.body.style.overflow = 'hidden'; hideDock(true); } }
   function closeModal(id) { const m = $('#' + id); if (m) { m.hidden = true; document.body.style.overflow = ''; hideDock(false); } }
@@ -289,6 +412,7 @@
         <div class="p-card-media">
           ${p.badge ? `<span class="card-badge">${esc(p.badge)}</span>` : ''}
           <button class="card-quick-add" type="button" data-add-enquiry="${esc(p.code)}" title="Add to Enquiry List" aria-label="Add to enquiry list"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 5v14M5 12h14"/></svg></button>
+          <button class="card-select" type="button" data-select-code="${esc(p.code)}" aria-pressed="false" title="Select for Selected Catalogue" aria-label="Select for selected-products catalogue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
           <a class="card-media-link" href="/products/${encodeURIComponent(p.code)}">${img}</a>
         </div>
         <div class="p-card-body">
@@ -340,6 +464,7 @@
       const cnt = $('#fsCount'); if (cnt) { cnt.textContent = nAct; cnt.hidden = !nAct; }
       const ap = $('#filterApply'); if (ap) ap.textContent = list.length ? `Show ${list.length} product${list.length === 1 ? '' : 's'}` : 'No products match';
       $('#filterChips').innerHTML = chips.map(([k, l]) => `<span class="chip">${esc(l)}<button data-chip="${k}" type="button" aria-label="Clear filter">✕</button></span>`).join('');
+      refreshSelectionUi();   // re-apply ✓ selection state after every grid re-render
     }
 
     $('#prodSearch').addEventListener('input', (e) => { state.q = e.target.value; apply(); });
@@ -404,6 +529,7 @@
   }
 
   renderFab();
+  refreshSelectionUi();
 })();
 /* ═══ v7.2 ADD-ON — removes the extra 3-line icon button from the top bar ═══ */
 (function () {
