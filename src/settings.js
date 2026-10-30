@@ -10,15 +10,16 @@ const DEFAULTS = {
   ],
   /* Catalogue watermark + the single editable contact source every catalogue
      PDF prints (Admin → Catalogue → "Catalogue Watermark"). Pre-filled so an
-     existing database gets sensible values before the owner ever opens it. */
+     existing database gets sensible values before the owner ever opens it.
+     v8.5: text-only tile, 5–7 % opacity, one mailbox (writemora@gmail.com). */
   'catalogue-watermark': {
     enabled: true,
-    logoPath: '',                    // '' → the brand crest
+    logoPath: '',                    // legacy key — PDFs no longer stamp a logo
     phone: '+91 8171246275',
     email: 'writemora@gmail.com',
     whatsapp: '918171246275',
     website: 'morahome.in',
-    opacity: 13,                     // 5 – 25 (%)
+    opacity: 6,                      // 5 – 7 (%)
   },
 };
 

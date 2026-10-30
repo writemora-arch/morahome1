@@ -154,7 +154,7 @@ function contact(c, ctx, opts = {}) {
       <p class="section-intro">${esc(c.subtitle)}</p>
       <div class="contact-actions">
         <a class="btn btn-outline btn-contact" href="mailto:${esc(ct.email1)}">${icon('mail', 18)}<span>Write to Us · ${esc(ct.email1)}</span></a>
-        <a class="btn btn-outline btn-contact" href="mailto:${esc(ct.email2)}">${icon('mail', 18)}<span>Ask MORA · ${esc(ct.email2)}</span></a>
+        ${ct.email2 ? `<a class="btn btn-outline btn-contact" href="mailto:${esc(ct.email2)}">${icon('mail', 18)}<span>Ask MORA · ${esc(ct.email2)}</span></a>` : ''}
         <a class="btn btn-outline btn-contact" href="tel:${esc(ct.phone.replace(/[^+\d]/g, ''))}">${icon('phone', 18)}<span>Call Now · ${esc(ct.phone)}</span></a>
         <button class="btn btn-outline btn-contact wa-open" type="button">${icon('whatsapp', 18)}<span>Chat on WhatsApp</span></button>
       </div>

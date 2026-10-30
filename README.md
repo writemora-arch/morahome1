@@ -162,7 +162,7 @@ running Node** (`DATA_DIR` env var overrides the location).
 5. **Leads Inbox (CRM)** — every enquiry / bulk list / catalogue request / WhatsApp click is
    stored in the database *first*; status board (New → Contacted → Quoted → Won → Closed),
    internal notes, 1-click WhatsApp/call links, **Export to Excel/CSV**.
-6. **Contact & WhatsApp Manager** — phone, WhatsApp, both emails, address, map link/embed and
+6. **Contact & WhatsApp Manager** — phone, WhatsApp, email (optional second address), address, map link/embed and
    the WhatsApp message template (`{name} {company} {product} {code}`) edited once, published
    everywhere (header, contact, footer, floating dock, PDF spec sheets).
 7. **SEO & Navigation** — per-page titles/descriptions + editable header nav links.

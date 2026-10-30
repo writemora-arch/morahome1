@@ -126,7 +126,7 @@ function footerHtml(brand, theme, footer, contact) {
         <ul class="footer-links contact-lines">
           <li>${icon('phone', 15)} <a href="tel:${esc(contact.phone.replace(/[^+\d]/g, ''))}">${esc(contact.phone)}</a></li>
           <li>${icon('mail', 15)} <a href="mailto:${esc(contact.email1)}">${esc(contact.email1)}</a></li>
-          <li>${icon('mail', 15)} <a href="mailto:${esc(contact.email2)}">${esc(contact.email2)}</a></li>
+          ${contact.email2 ? `<li>${icon('mail', 15)} <a href="mailto:${esc(contact.email2)}">${esc(contact.email2)}</a></li>` : ''}
           <li>${icon('pin', 15)} <span>${esc(contact.address)}</span></li>
         </ul>
       </div>
@@ -261,7 +261,6 @@ ${modals(contact)}
     whatsapp: waNumber,
     phone: contact.phone,
     email1: contact.email1,
-    email2: contact.email2,
     address: contact.address,
     mapLink: contact.mapLink,
     waTemplate: settings.get('whatsapp_template', preview ? 'draft' : 'live') || '',

@@ -36,9 +36,44 @@ function migrate() {
       email: c.email1 || 'writemora@gmail.com',
       whatsapp: String(c.whatsapp || '918171246275').replace(/[^\d+]/g, ''),
       website: 'morahome.in',
-      opacity: 13,
+      opacity: 6,
     });
     console.log('[migrate] ✔ added Catalogue Watermark settings.');
+  }
+
+  /* 2026-10 (v8.5): watermark redesign — one faint text tile, 5–7 % opacity.
+     Databases created by older versions stored up to 25 % (default 13 %);
+     pull any out-of-band value back into the new whisper band. */
+  const wmNow = db.getSetting('catalogue-watermark', 'live');
+  if (wmNow && (Number(wmNow.opacity) < 5 || Number(wmNow.opacity) > 7)) {
+    for (const mode of ['live', 'draft']) {
+      const v = db.getSetting('catalogue-watermark', mode);
+      if (v && (Number(v.opacity) < 5 || Number(v.opacity) > 7)) {
+        v.opacity = 6;
+        db.run('UPDATE settings SET ' + mode + ' = ? WHERE key = ?', [JSON.stringify(v), 'catalogue-watermark']);
+      }
+    }
+    console.log('[migrate] ✔ clamped catalogue watermark opacity to the 5–7 % band (set 6).');
+  }
+
+  /* 2026-10 (v8.5): the second mailbox (asktomora@gmail.com) is retired — every
+     template renders a single address now. Clear it from stored contact settings
+     so old databases stop printing it in the footer / contact section / spec
+     sheets. A different, owner-entered second address is left untouched. */
+  {
+    const row = db.get('SELECT live, draft FROM settings WHERE key = ?', ['contact']);
+    if (row) {
+      const patch = (json) => {
+        let v; try { v = JSON.parse(json || '{}'); } catch { return json; }
+        if (v && String(v.email2 || '').includes('asktomora')) { v.email2 = ''; return JSON.stringify(v); }
+        return json;
+      };
+      const live = patch(row.live), draft = patch(row.draft);
+      if (live !== row.live || draft !== row.draft) {
+        db.run('UPDATE settings SET live = ?, draft = ? WHERE key = ?', [live, draft, 'contact']);
+        console.log('[migrate] ✔ removed the retired asktomora@ mailbox from stored contact settings.');
+      }
+    }
   }
 
   /* 2026-10: repair the catalogue-cover pointer. Some databases store either a

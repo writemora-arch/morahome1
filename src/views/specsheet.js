@@ -49,7 +49,7 @@ function specSheetHtml(p, ctx) {
   </tbody></table>
   <footer class="sheet-foot">
     <p>Generated from the MORA HOME wholesale system on ${new Date().toISOString().slice(0, 10)} · For wholesale / B2B enquiries only.</p>
-    <p class="sheet-foot-contact">✉ ${esc(c.email1)} · ✉ ${esc(c.email2)} · ☎ ${esc(c.phone)} · WhatsApp +${esc(c.whatsapp)}</p>
+    <p class="sheet-foot-contact">✉ ${esc(c.email1)}${c.email2 ? ` · ✉ ${esc(c.email2)}` : ''} · ☎ ${esc(c.phone)} · WhatsApp +${esc(c.whatsapp)}</p>
   </footer>
 </div>
 <div class="print-bar no-print">

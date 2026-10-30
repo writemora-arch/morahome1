@@ -115,8 +115,7 @@ const FOOTER = {
 const CONTACT = {
   phone: '+91 8171246275',
   whatsapp: '918171246275',
-  email1: 'writemora@gmail.com',
-  email2: 'asktomora@gmail.com',
+  email1: 'writemora@gmail.com',      // v8.5: single mailbox everywhere (email2 retired)
   address: 'Moradabad, Uttar Pradesh, India',
   mapLink: 'https://maps.google.com/?q=Moradabad,Uttar+Pradesh,India',
   mapEmbed: 'https://www.google.com/maps?q=Moradabad,Uttar+Pradesh,India&output=embed',

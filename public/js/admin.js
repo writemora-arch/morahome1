@@ -657,7 +657,7 @@
           ${field('Phone', input('phone', ct.phone))}
           ${field('WhatsApp number (digits only, with country code)', input('whatsapp', ct.whatsapp), 'e.g. 918171246275')}
           ${field('Email 1 (Write to Us)', input('email1', ct.email1))}
-          ${field('Email 2 (Ask MORA)', input('email2', ct.email2))}
+          ${field('Email 2 (optional — leave empty to hide)', input('email2', ct.email2), 'The site prints ONE address unless you add a second one here.')}
           ${field('Address line', input('address', ct.address))}
           ${field('Google Maps link (“Open in Maps”)', input('mapLink', ct.mapLink))}
           ${field('Embedded map URL', input('mapEmbed', ct.mapEmbed), 'Must end with &output=embed')}
@@ -772,7 +772,7 @@
   function sCatalogue(c) {
     const cat = STATE.settings.catalogue || {};
     const cov = STATE.settings.catalogue_cover || {};
-    const wm = Object.assign({ enabled: true, logoPath: '', phone: '+91 8171246275', email: 'writemora@gmail.com', whatsapp: '918171246275', website: 'morahome.in', opacity: 13 }, STATE.settings.watermark || {});
+    const wm = Object.assign({ enabled: true, logoPath: '', phone: '+91 8171246275', email: 'writemora@gmail.com', whatsapp: '918171246275', website: 'morahome.in', opacity: 6 }, STATE.settings.watermark || {});
     c.innerHTML = `<div class="agrid two">
       <div class="acard"><h3>🎨 Catalogue Cover Page (front of every PDF)</h3>
         <p class="hint">Your designed cover is placed as <b>page 1</b> of the auto-generated catalogue — the full catalogue <i>and</i> every per-range catalogue. Current cover: ${cov.path ? `<a href="${esc(cov.path)}" target="_blank">${esc(cov.path)}</a>` : '<b>none set</b> — the built-in generated cover is used instead.'} ${cov.note ? `<br><i>${esc(cov.note)}</i>` : ''}</p>
@@ -795,20 +795,18 @@
       </div></div>
       <div class="agrid" style="margin-top:18px">
       <div class="acard"><h3>💧 Catalogue Watermark (every page of every PDF)</h3>
-        <p class="hint">A tiled diagonal watermark — your logo + phone + email + website — is baked into <b>every page</b> of the Selected Products catalogue and the All Categories catalogue (≈ −30°, behind the products). It is part of the page itself, not a removable layer. These fields are also the <b>single source</b> for the phone / email / website printed in the catalogue header &amp; footer — change them here and the next downloaded PDF updates automatically, no Publish needed.</p>
+        <p class="hint">A very faint tiled text watermark — <b>MORA HOME</b> over <b>phone · email · website</b> — is baked into every content page of the Selected Products catalogue and the All Categories catalogue (−30°, wide 150 pt grid, <b>behind</b> all text, tables and photos). Cover pages stay clean. It is part of the page itself, not a removable layer. These fields are also the <b>single source</b> for the phone / email / website printed in the catalogue header &amp; footer — change them here and the next downloaded PDF updates automatically, no Publish needed.</p>
         <div class="agrid three">
           ${field('Phone', input('wm_phone', wm.phone))}
           ${field('Email', input('wm_email', wm.email))}
           ${field('WhatsApp (digits, with country code)', input('wm_whatsapp', wm.whatsapp), 'e.g. 918171246275')}
           ${field('Website', input('wm_website', wm.website))}
-          ${field(`Watermark opacity — <b id="wmOpVal">${wm.opacity}%</b>`, `<input type="range" min="5" max="25" step="1" value="${wm.opacity}" id="wmOpacity">`, '5 % (barely visible) → 25 % (strong). Default 13 %.')}
+          ${field(`Watermark opacity — <b id="wmOpVal">${wm.opacity}%</b>`, `<input type="range" min="5" max="7" step="0.5" value="${wm.opacity}" id="wmOpacity">`, '5 % (almost invisible) → 7 % (visible only when you look carefully). Default 6 % — the watermark should whisper.')}
           <label class="switch-row" style="align-self:end"><input type="checkbox" class="switch" id="wmEnabled" ${wm.enabled ? 'checked' : ''}><span>Watermark ON</span></label>
         </div>
         <div class="agrid two" style="margin-top:12px">
           <div>
-            <p class="hint" style="margin-bottom:6px">Watermark logo — currently: ${wm.logoPath ? `<a href="${esc(wm.logoPath)}" target="_blank">${esc(wm.logoPath)}</a>` : '<b>brand crest</b> (default)'}</p>
-            <div class="uploader" id="wmLogoUp"><b>📤 Upload watermark logo (PNG, transparent background)</b><input type="file" id="wmLogoFile" accept="image/png,image/jpeg,image/webp" hidden></div>
-            ${wm.logoPath ? '<button class="abtn danger small" id="wmLogoRm" style="margin-top:8px">Use brand crest again</button>' : ''}
+            <p class="hint" style="margin-bottom:6px">Since v8.5 the PDF watermark is a <b>text-only</b> tile (no logo image), so tiles can never stack or overlap the content. Logo uploads are no longer stamped into PDFs — the crest still heads every catalogue page as before.${wm.logoPath ? `<br><i>Stored logo (unused by PDFs now): <a href="${esc(wm.logoPath)}" target="_blank">${esc(wm.logoPath)}</a></i>` : ''}</p>
           </div>
           <div style="display:flex;flex-direction:column;justify-content:flex-end;gap:8px">
             <button class="abtn primary" id="wmSave">💾 Save Watermark Settings</button>
@@ -853,18 +851,6 @@
         },
       });
       toast('💧 Watermark saved — live in the next catalogue download.'); await refresh();
-    };
-    $('#wmLogoUp').onclick = () => $('#wmLogoFile').click();
-    $('#wmLogoFile').onchange = async (e) => {
-      const f = e.target.files[0]; if (!f) return;
-      const fd = new FormData(); fd.append('file', f);
-      await api('/api/admin/watermark-logo', { method: 'POST', body: fd });
-      toast('Watermark logo updated ✔'); await refresh();
-    };
-    const wmRm = $('#wmLogoRm');
-    if (wmRm) wmRm.onclick = async () => {
-      await api('/api/admin/watermark-logo', { method: 'DELETE' });
-      toast('Watermark logo reset to the brand crest.'); await refresh();
     };
   }
 

@@ -7,11 +7,18 @@
  * selectedCataloguePdf()   → visitor shortlist: exactly 6 products per A4 page (2×3 grid),
  *                            photo + code + name + material + size + MOQ + price on every card
  *
- * Every page of BOTH catalogues carries a baked-in diagonal watermark (logo + phone +
- * email + website, tiled at ≈ −30°). The watermark is painted straight into each page's
- * content stream BEFORE the product content — it is not an optional-content layer and
- * not an annotation, so it cannot be switched off or deleted from a layer panel.
- * Its contents and opacity come from Admin → Catalogue → "Catalogue Watermark".
+ * Watermark (v8.5 redesign): ONE faint TEXT layer per page — "MORA HOME" over
+ * "phone · email · website" — tiled on a wide grid (≥150 pt of clear space between
+ * tiles, so tiles can never touch), tilted −30° on every page, drawn in the light
+ * warm grey-brown #B8A99A at 5–7 % opacity, painted into each page's content stream
+ * BEFORE the product content so it always sits BEHIND text, tables and photos.
+ * The old version stacked a logo tile + a text tile per cell, and mergeCover()
+ * stamped a SECOND, oppositely-rotated grid on top of pages that were already
+ * watermarked — the two grids landed on each other and on the content. Both bugs
+ * are gone: no logo tile, no second pass. Cover pages carry NO watermark at all
+ * (the designed dark-brown front stays clean). Contents and opacity come from
+ * Admin → Catalogue → "Catalogue Watermark"; it is baked into the page (not a
+ * layer, not an annotation) so it cannot be switched off from a PDF viewer.
  *
  * Layout: crest + MORA HOME header, red code, walnut rule, title, rounded photo +
  * facts table, description, "Detailed Specifications" striped table, footer contacts.
@@ -47,25 +54,27 @@ async function crestBuffer(ctx) {
 
 /* ══════════════════════════════════════════════════════════════════════════
    SINGLE EDITABLE CONTACT SOURCE (Admin → Catalogue → Catalogue Watermark)
-   The catalogue header/footer used to mix contact.email1 (header) with
-   contact.email2 (spec pages). Everything a catalogue prints now resolves
-   through catalogueContact(): watermark setting first, global contact as
-   fallback, so one edit updates every PDF.
+   The catalogue header/footer used to mix contact.email1 (header) with a second
+   mailbox (spec pages). Everything a catalogue prints now resolves through
+   catalogueContact(): watermark setting first, global contact as fallback, so
+   one edit updates every PDF. v8.5: one mailbox only — writemora@gmail.com.
    ══════════════════════════════════════════════════════════════════════════ */
 const WM_KEY = 'catalogue-watermark';
 const WM_DEFAULTS = {
   enabled: true,
-  logoPath: '',                       // '' → brand crest
+  logoPath: '',                       // legacy: PDFs are text-only since v8.5
   phone: '+91 8171246275',
   email: 'writemora@gmail.com',
   whatsapp: '918171246275',
   website: 'morahome.in',
-  opacity: 13,                        // 5 – 25 (%)
+  opacity: 6,                         // 5 – 7 (%) — "visible only when looking carefully"
 };
 function watermarkSettings(ctx, mode = 'live') {
   const stored = (ctx && ctx.watermark) || settings.get(WM_KEY, mode) || {};
   const w = Object.assign({}, WM_DEFAULTS, stored);
-  w.opacity = Math.min(25, Math.max(5, Number(w.opacity) || WM_DEFAULTS.opacity));
+  /* v8.5: the watermark is meant to whisper — hard-clamp into the 5–7 % band no
+     matter what an older database or an old admin session stored. */
+  w.opacity = Math.min(7, Math.max(5, Number(w.opacity) || WM_DEFAULTS.opacity));
   w.enabled = w.enabled !== false && w.enabled !== 'false' && w.enabled !== 0;
   return w;
 }
@@ -77,85 +86,79 @@ function catalogueContact(ctx) {
     phone: String(w.phone || c.phone || '').trim(),
     whatsapp: String(w.whatsapp || c.whatsapp || '').replace(/[^\d+]/g, ''),
     email: String(w.email || c.email1 || '').trim(),
-    email2: String(c.email2 || '').trim(),
     address: String(c.address || '').trim(),
     website: String(w.website || '').trim(),
   };
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   BAKED-IN DIAGONAL WATERMARK
+   BAKED-IN DIAGONAL WATERMARK (v8.5 — ONE text layer, wide grid, behind content)
    ══════════════════════════════════════════════════════════════════════════ */
-const wmTileCache = new Map();   // rel → { mtime, buf }
+const WM = {
+  color: '#B8A99A',      // light warm grey-brown — never black / never the dark walnut
+  angle: -30,            // identical diagonal tilt on every page, everywhere
+  gap: 150,              // pt of CLEAR space between tiles (spec: at least 150 pt)
+  titleSize: 7,          // pt (was 10) — the tile text must never compete with content
+  lineSize: 6,           // pt (was 7)
+  lineGap: 3,            // pt between the two text lines of a tile
+  titleSpacing: 1,       // characterSpacing of the MORA HOME line
+};
 
-/** Small alpha PNG of the watermark logo (down-scaled once, cached by mtime). */
-async function watermarkLogoBuffer(rel) {
-  const abs = absFromRel(rel);
-  if (!fs.existsSync(abs)) return null;
-  let mtime = 0;
-  try { mtime = fs.statSync(abs).mtimeMs; } catch { /* ignore */ }
-  const hit = wmTileCache.get(rel);
-  if (hit && hit.mtime === mtime) return hit.buf;
-  let buf = null;
-  try {
-    if (sharp) buf = await sharp(abs).rotate().resize({ width: 260, withoutEnlargement: true }).png({ quality: 80 }).toBuffer();
-    else buf = fs.readFileSync(abs);
-  } catch { buf = fs.readFileSync(abs); }
-  wmTileCache.set(rel, { mtime, buf });
-  return buf;
-}
-
-/** Paints the tiled diagonal watermark into the CURRENT page's content stream.
+/** Paints the single tiled text watermark into the CURRENT page's content stream.
     Called immediately after the paper fill and before any product content, so the
-    watermark always sits behind the content yet remains part of the page itself. */
+    watermark always sits behind text, tables and photos yet remains part of the
+    page itself. One layer only: two small centred text lines per tile — the old
+    logo image tile was removed (it stacked onto the text tile and onto content). */
 async function paintWatermark(doc, ctx, wmState) {
   const wm = wmState.wm;
   if (!wm || !wm.enabled) return;
-  if (wmState.img === false) return;                    // logo unavailable → skip quietly
-  if (!wmState.img) {
-    const rel = wm.logoPath || (ctx.brand && ctx.brand.crestPath) || '/uploads/brand/crest-transparent.png';
-    const buf = await watermarkLogoBuffer(rel);
-    if (!buf) { wmState.img = false; return; }
-    try { wmState.img = doc.openImage(buf); } catch { wmState.img = false; return; }
-  }
   const cc = wmState.cc;
+  const title = 'MORA HOME';
+  const contactLine = [cc.phone, cc.email, cc.website].filter(Boolean).join('  ·  ');
+  if (!title && !contactLine) return;
+  const alpha = Math.min(0.07, Math.max(0.05, wm.opacity / 100));
+
+  /* measure the tile once, unrotated */
+  const titleOpts = { lineBreak: false, characterSpacing: WM.titleSpacing };
+  doc.font('Helvetica-Bold').fontSize(WM.titleSize);
+  const titleW = doc.widthOfString(title, titleOpts);
+  const titleH = doc.heightOfString(title, titleOpts);
+  doc.font('Helvetica').fontSize(WM.lineSize);
+  const lineW = doc.widthOfString(contactLine, { lineBreak: false });
+  const lineH = doc.heightOfString(contactLine, { lineBreak: false });
+  const tileW = Math.max(titleW, lineW);
+  const tileH = titleH + WM.lineGap + lineH;
+  /* pitch = tile + the mandated clear gap → neighbouring tiles can never touch */
+  const pitchX = tileW + WM.gap;
+  const pitchY = tileH + WM.gap;
+
   const W = doc.page.width, H = doc.page.height;
-  const alpha = Math.min(0.25, Math.max(0.05, wm.opacity / 100));
-
-  /* tile box (unrotated): logo centred above three centred contact lines */
-  const TW = 64 * MM, TH = 50 * MM;
-  const crestW = 15 * MM, crestH = crestW * CREST_RATIO;
-  const lines = [cc.phone, cc.email, cc.website].filter(Boolean);
-  const blockH = crestH + 2 * MM + lines.length * 4.1 * MM;
-
   doc.save();
   doc.opacity(alpha);
-  doc.rotate(-30, { origin: [W / 2, H / 2] });
+  doc.rotate(WM.angle, { origin: [W / 2, H / 2] });
   const prevX = doc.x, prevY = doc.y;
   const diag = Math.hypot(W, H);
   const x0 = W / 2 - diag / 2, y0 = H / 2 - diag / 2;
   /* height:Infinity keeps pdfkit's line-wrapper from treating the rotated
      coordinates as overflow — the watermark must NEVER add a page. */
   const NB = { lineBreak: false, height: Infinity };
-  for (let ty = y0; ty < y0 + diag; ty += TH) {
-    for (let tx = x0; tx < x0 + diag; tx += TW) {
-      const inner = ty + (TH - blockH) / 2;
-      try { doc.image(wmState.img, tx + (TW - crestW) / 2, inner, { width: crestW }); } catch { /* skip tile image */ }
-      let ly = inner + crestH + 2 * MM;
-      doc.font('Times-Bold').fontSize(10).fillColor(C.walnut)
-        .text('MORA HOME', tx, ly, Object.assign({ width: TW, align: 'center', characterSpacing: 1.2 }, NB));
-      ly += 4.6 * MM;
-      doc.font('Helvetica').fontSize(7);
-      for (const ln of lines) { doc.text(ln, tx, ly, Object.assign({ width: TW, align: 'center' }, NB)); ly += 4.1 * MM; }
+  for (let ty = y0; ty < y0 + diag; ty += pitchY) {
+    for (let tx = x0; tx < x0 + diag; tx += pitchX) {
+      let ly = ty + (tileH - (titleH + WM.lineGap + lineH)) / 2;
+      doc.font('Helvetica-Bold').fontSize(WM.titleSize).fillColor(WM.color)
+        .text(title, tx + (tileW - titleW) / 2, ly, Object.assign({}, titleOpts, NB));
+      ly += titleH + WM.lineGap;
+      doc.font('Helvetica').fontSize(WM.lineSize).fillColor(WM.color)
+        .text(contactLine, tx + (tileW - lineW) / 2, ly, Object.assign({ lineBreak: false }, NB));
     }
   }
   doc.restore();
   doc.opacity(1);
   doc.x = prevX; doc.y = prevY;      // rotated coords must not leak into the layout flow
 }
-/** Per-document watermark state: settings resolved once, logo embedded once. */
+/** Per-document watermark state: settings resolved once. */
 function watermarkState(ctx) {
-  return { wm: watermarkSettings(ctx), cc: catalogueContact(ctx), img: null };
+  return { wm: watermarkSettings(ctx), cc: catalogueContact(ctx) };
 }
 
 /* ───────────────────────── text fitting helpers ───────────────────────── */
@@ -287,7 +290,8 @@ async function drawCoverPage(doc, ctx, crestBuf, prods, opts = {}, wmState) {
   doc.rect(0, 0, W, H).fill(C.paper);
   doc.rect(0, 0, W, 9 * MM).fill(C.walnut);
   doc.rect(0, H - 9 * MM, W, 9 * MM).fill(C.walnut);
-  if (wmState) await paintWatermark(doc, ctx, wmState);   // cover carries the watermark too
+  /* v8.5: the cover page stays CLEAN — no watermark at all (owner requirement:
+     the dark-brown masthead must not carry tiles). Content pages keep theirs. */
 
   /* ── crest ── */
   let y = 22 * MM;
@@ -424,9 +428,9 @@ async function cataloguePdf(ctx, opts = {}) {
 
 /** Prepend an uploaded/branded cover PDF (e.g. the designed front page) to a
     generated body PDF. Uses pdf-lib — pure JS, no external binaries.
-    The merged-in cover page is a page of the finished catalogue, so it gets the
-    baked watermark stamped on top of it (behind nothing — the cover art is the
-    page; the watermark tiles stay at 13 % so the design stays the focus). */
+    v8.5: nothing is stamped onto the merged pages any more. The body pages
+    already carry their single pdfkit watermark (stamping them again here was
+    the old double-grid bug), and the cover page must stay clean. */
 async function mergeCover(coverBuf, bodyBuf, ctx) {
   const { PDFDocument: Lib } = require('pdf-lib');
   const out = await Lib.create();
@@ -434,61 +438,7 @@ async function mergeCover(coverBuf, bodyBuf, ctx) {
   const body = await Lib.load(bodyBuf, { ignoreEncryption: true });
   for (const pg of await out.copyPages(cover, cover.getPageIndices())) out.addPage(pg);
   for (const pg of await out.copyPages(body, body.getPageIndices())) out.addPage(pg);
-  if (ctx) await stampMergedPages(out, ctx);
   return Buffer.from(await out.save());
-}
-
-/** Stamps the baked watermark onto pages that arrived from an uploaded cover
-    PDF (those pages carry no pdfkit content stream of ours). Each element is a
-    normal content-stream draw op on the page — not a layer, not an annotation.
-    Tile origins are laid out on an unrotated grid, then every point is mapped
-    through a +30° rotation about the page centre so the pattern runs diagonally
-    (visually identical to the pdfkit pages' rotate(-30)). */
-async function stampMergedPages(pdf, ctx) {
-  const { StandardFonts, degrees } = require('pdf-lib');
-  const wm = watermarkSettings(ctx);
-  if (!wm.enabled) return;
-  const rel = wm.logoPath || (ctx.brand && ctx.brand.crestPath) || '/uploads/brand/crest-transparent.png';
-  const buf = await watermarkLogoBuffer(rel);
-  if (!buf) return;
-  let wmImg = null;
-  try { wmImg = await pdf.embedPng(buf); } catch { return; }
-  const cc = catalogueContact(ctx);
-  const fontB = await pdf.embedStandardFont(StandardFonts.HelveticaBold);
-  const font = await pdf.embedStandardFont(StandardFonts.Helvetica);
-  const alpha = Math.min(0.25, Math.max(0.05, wm.opacity / 100));
-  const lines = [cc.phone, cc.email, cc.website].map(clean).filter(Boolean);
-  const TW = 64 * MM, TH = 50 * MM;
-  const crestW = 15 * MM, crestH = crestW * (wmImg.height / wmImg.width);
-  const blockH = crestH + 2 * MM + lines.length * 4.1 * MM;
-
-  for (const page of pdf.getPages()) {
-    const { width: W, height: H } = page.getSize();
-    const cx = W / 2, cy = H / 2;
-    const phi = 30 * Math.PI / 180, cos = Math.cos(phi), sin = Math.sin(phi);
-    /* conceptual y-down tile point → mapped y-up page coordinates */
-    const P = (tx, ty) => {
-      const u = tx, v = H - ty;
-      return [cx + (u - cx) * cos - (v - cy) * sin, cy + (u - cx) * sin + (v - cy) * cos];
-    };
-    const diag = Math.hypot(W, H);
-    for (let ty = cy - diag / 2; ty < cy + diag / 2; ty += TH) {
-      for (let tx = cx - diag / 2; tx < cx + diag / 2; tx += TW) {
-        const inner = ty + (TH - blockH) / 2;
-        const [ix, iy] = P(tx + (TW - crestW) / 2, inner + crestH);   // image bottom-left
-        page.drawImage(wmImg, { x: ix, y: iy, width: crestW, height: crestH, opacity: alpha, rotate: degrees(30) });
-        let ly = inner + crestH + 2 * MM;
-        const [mx, my] = P(tx + 6 * MM, ly + 8);
-        page.drawText('MORA HOME', { x: mx, y: my, size: 10, font: fontB, opacity: alpha, rotate: degrees(30) });
-        ly += 4.6 * MM;
-        for (const ln of lines) {
-          const [lx, lyy] = P(tx + 6 * MM, ly + 6);
-          page.drawText(ln, { x: lx, y: lyy, size: 7, font, opacity: alpha, rotate: degrees(30) });
-          ly += 4.1 * MM;
-        }
-      }
-    }
-  }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
