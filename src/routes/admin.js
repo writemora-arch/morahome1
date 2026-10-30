@@ -22,8 +22,18 @@ const ratelimit = require('../lib/ratelimit');
 const SETTING_KEYS = ['theme', 'contact', 'seo', 'footer', 'nav', 'whatsapp_template', 'brand'];
 const baseKey = (k) => String(k).replace(/_\d+$/, '');
 
-/* nothing under /admin or /api/admin should ever be indexed (audit C1) */
-router.use((req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });
+/* nothing under /admin or /api/admin should ever be indexed (audit C1).
+   v8.3 fix: this router is mounted at the app ROOT, so an unguarded
+   router.use() ran for EVERY request and stamped "noindex, nofollow" on all
+   public pages too — telling Google to hide the whole website. Only admin
+   URLs may carry the header now. */
+router.use((req, res, next) => {
+  const p = req.path || '/';
+  if (p === '/admin' || p.startsWith('/admin/') || p === '/api/admin' || p.startsWith('/api/admin/')) {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  }
+  next();
+});
 
 /* CSRF: double-submit cookie. The token is stored in a SameSite=Lax cookie AND
    embedded in the login form; POST must present both, matching. */
