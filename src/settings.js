@@ -8,6 +8,18 @@ const DEFAULTS = {
     { label: 'About Us', url: '/about' },
     { label: 'Contact', url: '/contact' },
   ],
+  /* Catalogue watermark + the single editable contact source every catalogue
+     PDF prints (Admin → Catalogue → "Catalogue Watermark"). Pre-filled so an
+     existing database gets sensible values before the owner ever opens it. */
+  'catalogue-watermark': {
+    enabled: true,
+    logoPath: '',                    // '' → the brand crest
+    phone: '+91 8171246275',
+    email: 'writemora@gmail.com',
+    whatsapp: '918171246275',
+    website: 'morahome.in',
+    opacity: 13,                     // 5 – 25 (%)
+  },
 };
 
 function get(key, mode = 'live') {

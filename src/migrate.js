@@ -12,6 +12,62 @@ function migrate() {
     console.log('[migrate] ✔ added products.price column.');
   }
 
+  /* 2026-10: databases created before the price feature got the column with
+     DEFAULT '' but were never back-filled, so every card/PDF showed "On request"
+     even though seed ships sample prices. Fill demo rows that are still empty —
+     a price the owner typed in Admin is never touched. */
+  const { PRODUCTS } = require('./seed');
+  const empty = db.all("SELECT id, code FROM products WHERE demo = 1 AND (price IS NULL OR price = '')");
+  let filled = 0;
+  for (const r of empty) {
+    const src = PRODUCTS.find((p) => p.code === r.code);
+    if (src && src.price) { db.run('UPDATE products SET price = ? WHERE id = ?', [src.price, r.id]); filled++; }
+  }
+  if (filled) console.log(`[migrate] ✔ back-filled sample wholesale prices on ${filled} demo product(s).`);
+
+  /* 2026-10: catalogue watermark + single editable catalogue contact source.
+     Materialised on first boot so Admin → Catalogue shows real values and the
+     next generated PDF picks them up immediately. */
+  if (!db.get('SELECT key FROM settings WHERE key = ?', ['catalogue-watermark'])) {
+    const c = db.getSetting('contact', 'live') || {};
+    db.setSettingBoth('catalogue-watermark', {
+      enabled: true, logoPath: '',
+      phone: c.phone || '+91 8171246275',
+      email: c.email1 || 'writemora@gmail.com',
+      whatsapp: String(c.whatsapp || '918171246275').replace(/[^\d+]/g, ''),
+      website: 'morahome.in',
+      opacity: 13,
+    });
+    console.log('[migrate] ✔ added Catalogue Watermark settings.');
+  }
+
+  /* 2026-10: repair the catalogue-cover pointer. Some databases store either a
+     dead path (file deleted) or a timestamped byte-copy of the shipped cover
+     (left behind by uploads/QA runs). When the stored file is missing, or is
+     byte-identical to assets/brand/catalogue-cover.pdf, repoint at the canonical
+     upload so /catalogue/latest always merges a real page 1. A genuinely custom
+     cover is never touched. */
+  const covRow = db.getSetting('catalogue_cover', 'live') || {};
+  const canonical = '/uploads/catalogue-cover/catalogue-cover.pdf';
+  if (covRow.path && covRow.path !== canonical) {
+    const fsx = require('fs'), pathx = require('path');
+    const { absFromRel } = require('./lib/media');
+    const storedAbs = absFromRel(covRow.path);
+    const canonAbs = absFromRel(canonical);
+    const sameAsShipped = () => {
+      const shipped = pathx.join(__dirname, '..', 'assets', 'brand', 'catalogue-cover.pdf');
+      try {
+        return fsx.existsSync(storedAbs) && fsx.existsSync(shipped) &&
+          fsx.statSync(storedAbs).size === fsx.statSync(shipped).size &&
+          fsx.readFileSync(storedAbs).equals(fsx.readFileSync(shipped));
+      } catch { return false; }
+    };
+    if ((!fsx.existsSync(storedAbs) || sameAsShipped()) && fsx.existsSync(canonAbs)) {
+      db.setSettingBoth('catalogue_cover', { path: canonical, note: 'Designed cover page (Admin → Catalogue to replace or remove).' });
+      console.log('[migrate] ✔ repointed catalogue cover to the canonical page.');
+    }
+  }
+
   /* 2026-10: designed catalogue cover page ships as an asset; install it as the
      default front page of the auto-generated catalogue (admin can replace/remove). */
   const fs = require('fs');

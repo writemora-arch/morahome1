@@ -431,6 +431,44 @@
       </article>`;
     }
 
+    /* ── search landing (v8.4): results jump straight under the sticky bar ──
+       The header search and the drawer search land on /products?q=…; the search
+       box on this page keeps the term in the URL too (share + reload safe).
+       After any search we scroll the results block so its first card sits just
+       below the frozen search/filter bar instead of a screen-height away. */
+    const resultsAnchor = () => document.getElementById('results') || grid;
+    function stickyH() {
+      const s = document.querySelector('.products-sticky');
+      return s ? Math.round(s.getBoundingClientRect().height) : 0;
+    }
+    function scrollToResults(smooth) {
+      const el = resultsAnchor();
+      if (!el) return;
+      el.style.scrollMarginTop = (stickyH() + 8) + 'px';   // offset for the frozen bar
+      el.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
+    }
+    function resultsInView() {
+      const el = resultsAnchor();
+      if (!el) return true;
+      const r = el.getBoundingClientRect();
+      return r.top >= 0 && r.top < window.innerHeight * 0.9;
+    }
+    function syncUrl() {
+      const u = new URL(location.href);
+      if (state.q) u.searchParams.set('q', state.q); else u.searchParams.delete('q');
+      if (state.cat) u.searchParams.set('cat', state.cat); else u.searchParams.delete('cat');
+      const qs = u.searchParams.toString();
+      history.replaceState(null, '', u.pathname + (qs ? '?' + qs : '') + u.hash);
+    }
+    /* few results (1–3, fewer than the current column count) → centre them so a
+       single card never sits alone against a blank half-row */
+    function syncSparse() {
+      const cols = (getComputedStyle(grid).gridTemplateColumns || '').split(' ').filter(Boolean).length || 1;
+      const n = grid.children.length;
+      grid.classList.toggle('sparse', n > 0 && n < cols);
+    }
+    window.addEventListener('resize', () => { if (grid) syncSparse(); });
+
     function apply() {
       const qn = norm(state.q);
       let list = PRODUCTS.filter((p) => {
@@ -464,13 +502,36 @@
       const cnt = $('#fsCount'); if (cnt) { cnt.textContent = nAct; cnt.hidden = !nAct; }
       const ap = $('#filterApply'); if (ap) ap.textContent = list.length ? `Show ${list.length} product${list.length === 1 ? '' : 's'}` : 'No products match';
       $('#filterChips').innerHTML = chips.map(([k, l]) => `<span class="chip">${esc(l)}<button data-chip="${k}" type="button" aria-label="Clear filter">✕</button></span>`).join('');
+      const hint = $('#emptyHint');
+      if (hint) hint.innerHTML = state.q
+        ? `We could not find a product matching <b>“${esc(state.q)}”</b>. Tell us what you need — we make almost anything in metal &amp; wood.`
+        : 'No products match the current filters. Try clearing them.';
+      syncSparse();
       refreshSelectionUi();   // re-apply ✓ selection state after every grid re-render
     }
 
-    $('#prodSearch').addEventListener('input', (e) => { state.q = e.target.value; apply(); });
+    /* typing filters live; the URL follows (debounced) so a shared link or a
+       reload lands on the same search */
+    let urlTimer = null;
+    $('#prodSearch').addEventListener('input', (e) => {
+      state.q = e.target.value; apply();
+      clearTimeout(urlTimer);
+      urlTimer = setTimeout(() => {
+        syncUrl();
+        if (state.q && !resultsInView()) scrollToResults(true);
+      }, 350);
+    });
+    /* Enter / search key in the products search box = a deliberate search:
+       apply now, fix the URL now and jump to the results */
+    const prodForm = $('#prodSearchForm');
+    if (prodForm) prodForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      state.q = $('#prodSearch').value;
+      apply(); syncUrl(); scrollToResults(true);
+    });
     $$('.cat-tab').forEach((t) => t.addEventListener('click', () => {
       $$('.cat-tab').forEach((x) => x.classList.remove('active'));
-      t.classList.add('active'); state.cat = t.dataset.cat; apply();
+      t.classList.add('active'); state.cat = t.dataset.cat; apply(); syncUrl();
     }));
     /* floating filter panel — fixed to the screen, so it opens right where you are scrolled */
     const drawer = $('#filterDrawer'), fsBtn = $('#filterSortBtn');
@@ -509,7 +570,7 @@
       $('#featuredToggle').checked = false; setMatUi();
       $('#prodSearch').value = ''; $('#sortSelect').value = 'new'; $('#badgeSelect').value = ''; $('#moqSelect').value = '';
       $$('.cat-tab').forEach((x) => x.classList.toggle('active', x.dataset.cat === ''));
-      apply();
+      apply(); syncUrl();
     }
     $('#clearFilters').addEventListener('click', clearAll);
     $('#emptyClear').addEventListener('click', clearAll);
@@ -523,9 +584,17 @@
       if (k === 'moq') { state.moq = ''; $('#moqSelect').value = ''; }
       if (k === 'material') { state.material = ''; setMatUi(); }
       if (k === 'featured') { state.featured = false; $('#featuredToggle').checked = false; }
-      apply();
+      apply(); syncUrl();
     });
     apply();
+
+    /* arrived from the header/drawer search (…/products?q=MH-2017): land ON the
+       results, first card just under the frozen search bar — not at the hero.
+       Two frames: let images/fonts settle so the sticky bar height is final. */
+    if (state.q) {
+      requestAnimationFrame(() => requestAnimationFrame(() => scrollToResults(false)));
+      setTimeout(() => scrollToResults(false), 250);
+    }
   }
 
   renderFab();

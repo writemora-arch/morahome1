@@ -86,6 +86,15 @@ router.use('/api/admin', auth.requireAdminApi);
 
 router.get('/api/admin/schemas', (req, res) => res.json({ sections: SECTIONS }));
 
+/* Any non-GET admin API call may have changed something a generated catalogue
+   PDF prints (price, contact, watermark, cover) → drop the cached PDFs so the
+   next download is always freshly built. */
+const catcache = require('../lib/catcache');
+router.use('/api/admin', (req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') res.on('finish', () => catcache.invalidate());
+  next();
+});
+
 function dirtyState() {
   const dirtySections = db.all('SELECT * FROM sections').some((s) => s.draft_json !== s.live_json || s.draft_visible !== s.live_visible || s.draft_order !== s.live_order);
   const dirtySettings = SETTING_KEYS.some((k) => {
@@ -108,6 +117,7 @@ router.get('/api/admin/state', (req, res) => {
       whatsapp_template: settings.get('whatsapp_template', 'draft'), brand: settings.get('brand', 'draft'),
       catalogue: settings.get('catalogue', 'live'), demo_mode: settings.get('demo_mode', 'live'),
       catalogue_cover: settings.get('catalogue_cover', 'live'),
+      watermark: settings.get('catalogue-watermark', 'live'),
       admin_user: (settings.get('auth', 'live') || {}).user,
     },
     categories: db.all('SELECT * FROM categories ORDER BY sort ASC'),
@@ -155,9 +165,47 @@ router.put('/api/admin/settings/:key', express.json(), (req, res) => {
 /* immediate-effect settings (no publish needed) */
 router.put('/api/admin/immediate/:key', express.json(), (req, res) => {
   const key = req.params.key;
-  if (!['catalogue', 'demo_mode', 'whatsapp_template_immediate'].includes(key)) return res.status(400).json({ error: 'Unknown key' });
+  if (!['catalogue', 'demo_mode', 'whatsapp_template_immediate', 'catalogue-watermark'].includes(key)) return res.status(400).json({ error: 'Unknown key' });
   if (key === 'whatsapp_template_immediate') { db.setSettingBoth('whatsapp_template', req.body); return res.json({ ok: true }); }
+  if (key === 'catalogue-watermark') {
+    const b = req.body || {};
+    const cur = settings.get('catalogue-watermark', 'live') || {};
+    const opacity = Math.min(25, Math.max(5, Number(b.opacity) || 13));
+    db.setSettingBoth('catalogue-watermark', {
+      enabled: b.enabled !== false && b.enabled !== 'false',
+      logoPath: typeof b.logoPath === 'string' ? b.logoPath : (cur.logoPath || ''),
+      phone: String(b.phone == null ? (cur.phone || '') : b.phone).slice(0, 60),
+      email: String(b.email == null ? (cur.email || '') : b.email).slice(0, 120),
+      whatsapp: String(b.whatsapp == null ? (cur.whatsapp || '') : b.whatsapp).replace(/[^\d+]/g, '').slice(0, 20),
+      website: String(b.website == null ? (cur.website || '') : b.website).slice(0, 80),
+      opacity,
+    });
+    require('../lib/catcache').invalidate();
+    return res.json({ ok: true, watermark: settings.get('catalogue-watermark', 'live') });
+  }
   db.setSettingBoth(key, req.body);
+  res.json({ ok: true });
+});
+
+/* Catalogue watermark logo (Admin → Catalogue → Catalogue Watermark).
+   POST replaces it, DELETE falls back to the brand crest. */
+router.post('/api/admin/watermark-logo', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+  if (!/^image\//.test(req.file.mimetype || '') && !/\.(jpe?g|png|webp)$/i.test(req.file.originalname || '')) {
+    return res.status(400).json({ error: 'Please upload a PNG/JPG/WebP logo with a transparent background.' });
+  }
+  media.saveFile(req.file.buffer, 'watermark', req.file.originalname).then((rel) => {
+    const cur = settings.get('catalogue-watermark', 'live') || {};
+    db.setSettingBoth('catalogue-watermark', Object.assign({}, cur, { logoPath: rel }));
+    require('../lib/catcache').invalidate();
+    res.status(201).json({ ok: true, path: rel });
+  }).catch((e) => res.status(500).json({ error: e.message }));
+});
+router.delete('/api/admin/watermark-logo', (req, res) => {
+  const cur = settings.get('catalogue-watermark', 'live') || {};
+  if (cur.logoPath) media.removeRel(cur.logoPath);
+  db.setSettingBoth('catalogue-watermark', Object.assign({}, cur, { logoPath: '' }));
+  require('../lib/catcache').invalidate();
   res.json({ ok: true });
 });
 

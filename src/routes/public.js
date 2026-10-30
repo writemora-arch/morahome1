@@ -272,8 +272,16 @@ Object.entries(LEGAL).forEach(([url, [title, paras, desc]]) => {
    present; otherwise auto-generates a branded wholesale catalogue — designed
    cover page (admin-uploadable) merged in front, then one spec page per
    published product. ?cat=<slug> produces a single-range catalogue.
-   Cached in memory; rebuilt when products or the cover change. */
-const catCache = new Map(); // key → { sig, buf, building }
+   Cached in memory (src/lib/catcache); rebuilt when products, the cover file or
+   ANY setting the PDFs print (contact / watermark / brand) change. Admin writes
+   additionally call catcache.invalidate(), so an edited price or phone number is
+   always visible in the next downloaded catalogue. */
+const catCache = require('../lib/catcache').cache;
+function settingsStamp() {
+  const parts = ['contact', 'catalogue-watermark', 'brand', 'catalogue_cover', 'catalogue']
+    .map((k) => { const v = settings.get(k, 'live'); return v ? JSON.stringify(v) : ''; });
+  return require('crypto').createHash('md5').update(parts.join('|')).digest('hex').slice(0, 10);
+}
 function catalogueSignature(catSlug) {
   const row = catSlug
     ? db.get("SELECT COUNT(*) c, MAX(updated_at) m FROM products WHERE status = 'published' AND category_slug = ?", [catSlug])
@@ -284,7 +292,7 @@ function catalogueSignature(catSlug) {
     const abs = absFromRel(cov.path);
     if (fs.existsSync(abs)) coverM = String(fs.statSync(abs).mtimeMs);
   }
-  return `${row ? row.c : 0}|${row && row.m ? row.m : ''}|${coverM}`;
+  return `${row ? row.c : 0}|${row && row.m ? row.m : ''}|${coverM}|${settingsStamp()}`;
 }
 function coverBuffer() {
   const cov = settings.get('catalogue_cover', 'live') || {};
@@ -301,8 +309,9 @@ async function buildCatalogue(catSlug) {
     if (!e || !e.building) {
       const promise = (async () => {
         const cover = coverBuffer();
-        const body = await cataloguePdf(ctx('live'), { catSlug: catSlug || undefined, includeCover: !cover });
-        return cover ? mergeCover(cover, body) : body;
+        const live = ctx('live');
+        const body = await cataloguePdf(live, { catSlug: catSlug || undefined, includeCover: !cover });
+        return cover ? mergeCover(cover, body, live) : body;
       })();
       e = { sig, buf: (e && e.buf) || null, building: promise };
       catCache.set(key, e);

@@ -772,6 +772,7 @@
   function sCatalogue(c) {
     const cat = STATE.settings.catalogue || {};
     const cov = STATE.settings.catalogue_cover || {};
+    const wm = Object.assign({ enabled: true, logoPath: '', phone: '+91 8171246275', email: 'writemora@gmail.com', whatsapp: '918171246275', website: 'morahome.in', opacity: 13 }, STATE.settings.watermark || {});
     c.innerHTML = `<div class="agrid two">
       <div class="acard"><h3>🎨 Catalogue Cover Page (front of every PDF)</h3>
         <p class="hint">Your designed cover is placed as <b>page 1</b> of the auto-generated catalogue — the full catalogue <i>and</i> every per-range catalogue. Current cover: ${cov.path ? `<a href="${esc(cov.path)}" target="_blank">${esc(cov.path)}</a>` : '<b>none set</b> — the built-in generated cover is used instead.'} ${cov.note ? `<br><i>${esc(cov.note)}</i>` : ''}</p>
@@ -791,6 +792,29 @@
       <div class="acard"><h3>🖨 Auto PDF Spec Sheets</h3>
         <p class="hint">Every product automatically gets a printable A4 spec sheet with your logo, specs, price, MOQ and contact details — no setup needed.</p>
         <ul>${STATE.products.slice(0, 6).map((p) => `<li><a href="/products/${esc(p.code)}/spec-sheet" target="_blank">${esc(p.code)} — printable A4</a> · <a href="/products/${esc(p.code)}/spec-sheet.pdf" target="_blank">PDF</a></li>`).join('')}</ul>
+      </div></div>
+      <div class="agrid" style="margin-top:18px">
+      <div class="acard"><h3>💧 Catalogue Watermark (every page of every PDF)</h3>
+        <p class="hint">A tiled diagonal watermark — your logo + phone + email + website — is baked into <b>every page</b> of the Selected Products catalogue and the All Categories catalogue (≈ −30°, behind the products). It is part of the page itself, not a removable layer. These fields are also the <b>single source</b> for the phone / email / website printed in the catalogue header &amp; footer — change them here and the next downloaded PDF updates automatically, no Publish needed.</p>
+        <div class="agrid three">
+          ${field('Phone', input('wm_phone', wm.phone))}
+          ${field('Email', input('wm_email', wm.email))}
+          ${field('WhatsApp (digits, with country code)', input('wm_whatsapp', wm.whatsapp), 'e.g. 918171246275')}
+          ${field('Website', input('wm_website', wm.website))}
+          ${field(`Watermark opacity — <b id="wmOpVal">${wm.opacity}%</b>`, `<input type="range" min="5" max="25" step="1" value="${wm.opacity}" id="wmOpacity">`, '5 % (barely visible) → 25 % (strong). Default 13 %.')}
+          <label class="switch-row" style="align-self:end"><input type="checkbox" class="switch" id="wmEnabled" ${wm.enabled ? 'checked' : ''}><span>Watermark ON</span></label>
+        </div>
+        <div class="agrid two" style="margin-top:12px">
+          <div>
+            <p class="hint" style="margin-bottom:6px">Watermark logo — currently: ${wm.logoPath ? `<a href="${esc(wm.logoPath)}" target="_blank">${esc(wm.logoPath)}</a>` : '<b>brand crest</b> (default)'}</p>
+            <div class="uploader" id="wmLogoUp"><b>📤 Upload watermark logo (PNG, transparent background)</b><input type="file" id="wmLogoFile" accept="image/png,image/jpeg,image/webp" hidden></div>
+            ${wm.logoPath ? '<button class="abtn danger small" id="wmLogoRm" style="margin-top:8px">Use brand crest again</button>' : ''}
+          </div>
+          <div style="display:flex;flex-direction:column;justify-content:flex-end;gap:8px">
+            <button class="abtn primary" id="wmSave">💾 Save Watermark Settings</button>
+            <p class="hint" style="margin:0">Saved settings apply to the <b>next</b> catalogue download immediately.</p>
+          </div>
+        </div>
       </div></div>`;
     $('#catUp').onclick = () => $('#catFile').click();
     $('#catFile').onchange = async (e) => {
@@ -811,6 +835,36 @@
       if (!confirm('Remove your uploaded cover page? Catalogues will fall back to the generated page 1.')) return;
       await api('/api/admin/catalogue-cover', { method: 'DELETE' });
       toast('Cover removed.'); await refresh();
+    };
+    /* ── catalogue watermark ── */
+    const op = $('#wmOpacity');
+    if (op) op.addEventListener('input', () => { const v = $('#wmOpVal'); if (v) v.textContent = op.value + '%'; });
+    $('#wmSave').onclick = async () => {
+      await api('/api/admin/immediate/catalogue-watermark', {
+        method: 'PUT',
+        json: {
+          enabled: $('#wmEnabled').checked,
+          logoPath: wm.logoPath || '',
+          phone: $('[data-f="wm_phone"]').value,
+          email: $('[data-f="wm_email"]').value,
+          whatsapp: $('[data-f="wm_whatsapp"]').value,
+          website: $('[data-f="wm_website"]').value,
+          opacity: Number($('#wmOpacity').value),
+        },
+      });
+      toast('💧 Watermark saved — live in the next catalogue download.'); await refresh();
+    };
+    $('#wmLogoUp').onclick = () => $('#wmLogoFile').click();
+    $('#wmLogoFile').onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const fd = new FormData(); fd.append('file', f);
+      await api('/api/admin/watermark-logo', { method: 'POST', body: fd });
+      toast('Watermark logo updated ✔'); await refresh();
+    };
+    const wmRm = $('#wmLogoRm');
+    if (wmRm) wmRm.onclick = async () => {
+      await api('/api/admin/watermark-logo', { method: 'DELETE' });
+      toast('Watermark logo reset to the brand crest.'); await refresh();
     };
   }
 

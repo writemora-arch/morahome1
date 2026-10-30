@@ -215,4 +215,4 @@ if (require.main === module) {
   seed(process.argv.includes('--force')).then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { seed, seedDemoProducts, hashPass };
+module.exports = { seed, seedDemoProducts, hashPass, PRODUCTS };

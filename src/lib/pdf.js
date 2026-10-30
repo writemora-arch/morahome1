@@ -1,9 +1,17 @@
 /**
  * MORA HOME — auto-generated A4 PDFs (pdfkit).
  *
- * specPdf(p, ctx)      → single-product spec sheet (1:1 copy of the printable HTML sheet)
- * cataloguePdf(ctx)    → wholesale catalogue: branded cover + one spec page per
- *                        published product (audit H2 — /catalogue/latest is never a dead end)
+ * specPdf(p, ctx)          → single-product spec sheet (1:1 copy of the printable HTML sheet)
+ * cataloguePdf(ctx, opts)  → wholesale catalogue: branded cover + one spec page per
+ *                            published product (audit H2 — /catalogue/latest is never a dead end)
+ * selectedCataloguePdf()   → visitor shortlist: exactly 6 products per A4 page (2×3 grid),
+ *                            photo + code + name + material + size + MOQ + price on every card
+ *
+ * Every page of BOTH catalogues carries a baked-in diagonal watermark (logo + phone +
+ * email + website, tiled at ≈ −30°). The watermark is painted straight into each page's
+ * content stream BEFORE the product content — it is not an optional-content layer and
+ * not an annotation, so it cannot be switched off or deleted from a layer panel.
+ * Its contents and opacity come from Admin → Catalogue → "Catalogue Watermark".
  *
  * Layout: crest + MORA HOME header, red code, walnut rule, title, rounded photo +
  * facts table, description, "Detailed Specifications" striped table, footer contacts.
@@ -11,6 +19,7 @@
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const db = require('../db');
+const settings = require('../settings');
 const { absFromRel } = require('./media');
 
 let sharp = null;
@@ -36,9 +45,146 @@ async function crestBuffer(ctx) {
   return imageBuffer(absFromRel(brand.crestIvoryPath || brand.crestPath || '/uploads/brand/crest-ivory.png'));
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   SINGLE EDITABLE CONTACT SOURCE (Admin → Catalogue → Catalogue Watermark)
+   The catalogue header/footer used to mix contact.email1 (header) with
+   contact.email2 (spec pages). Everything a catalogue prints now resolves
+   through catalogueContact(): watermark setting first, global contact as
+   fallback, so one edit updates every PDF.
+   ══════════════════════════════════════════════════════════════════════════ */
+const WM_KEY = 'catalogue-watermark';
+const WM_DEFAULTS = {
+  enabled: true,
+  logoPath: '',                       // '' → brand crest
+  phone: '+91 8171246275',
+  email: 'writemora@gmail.com',
+  whatsapp: '918171246275',
+  website: 'morahome.in',
+  opacity: 13,                        // 5 – 25 (%)
+};
+function watermarkSettings(ctx, mode = 'live') {
+  const stored = (ctx && ctx.watermark) || settings.get(WM_KEY, mode) || {};
+  const w = Object.assign({}, WM_DEFAULTS, stored);
+  w.opacity = Math.min(25, Math.max(5, Number(w.opacity) || WM_DEFAULTS.opacity));
+  w.enabled = w.enabled !== false && w.enabled !== 'false' && w.enabled !== 0;
+  return w;
+}
+/** One editable source for every phone/email/website a catalogue prints. */
+function catalogueContact(ctx) {
+  const c = ctx.contact || {};
+  const w = watermarkSettings(ctx);
+  return {
+    phone: String(w.phone || c.phone || '').trim(),
+    whatsapp: String(w.whatsapp || c.whatsapp || '').replace(/[^\d+]/g, ''),
+    email: String(w.email || c.email1 || '').trim(),
+    email2: String(c.email2 || '').trim(),
+    address: String(c.address || '').trim(),
+    website: String(w.website || '').trim(),
+  };
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BAKED-IN DIAGONAL WATERMARK
+   ══════════════════════════════════════════════════════════════════════════ */
+const wmTileCache = new Map();   // rel → { mtime, buf }
+
+/** Small alpha PNG of the watermark logo (down-scaled once, cached by mtime). */
+async function watermarkLogoBuffer(rel) {
+  const abs = absFromRel(rel);
+  if (!fs.existsSync(abs)) return null;
+  let mtime = 0;
+  try { mtime = fs.statSync(abs).mtimeMs; } catch { /* ignore */ }
+  const hit = wmTileCache.get(rel);
+  if (hit && hit.mtime === mtime) return hit.buf;
+  let buf = null;
+  try {
+    if (sharp) buf = await sharp(abs).rotate().resize({ width: 260, withoutEnlargement: true }).png({ quality: 80 }).toBuffer();
+    else buf = fs.readFileSync(abs);
+  } catch { buf = fs.readFileSync(abs); }
+  wmTileCache.set(rel, { mtime, buf });
+  return buf;
+}
+
+/** Paints the tiled diagonal watermark into the CURRENT page's content stream.
+    Called immediately after the paper fill and before any product content, so the
+    watermark always sits behind the content yet remains part of the page itself. */
+async function paintWatermark(doc, ctx, wmState) {
+  const wm = wmState.wm;
+  if (!wm || !wm.enabled) return;
+  if (wmState.img === false) return;                    // logo unavailable → skip quietly
+  if (!wmState.img) {
+    const rel = wm.logoPath || (ctx.brand && ctx.brand.crestPath) || '/uploads/brand/crest-transparent.png';
+    const buf = await watermarkLogoBuffer(rel);
+    if (!buf) { wmState.img = false; return; }
+    try { wmState.img = doc.openImage(buf); } catch { wmState.img = false; return; }
+  }
+  const cc = wmState.cc;
+  const W = doc.page.width, H = doc.page.height;
+  const alpha = Math.min(0.25, Math.max(0.05, wm.opacity / 100));
+
+  /* tile box (unrotated): logo centred above three centred contact lines */
+  const TW = 64 * MM, TH = 50 * MM;
+  const crestW = 15 * MM, crestH = crestW * CREST_RATIO;
+  const lines = [cc.phone, cc.email, cc.website].filter(Boolean);
+  const blockH = crestH + 2 * MM + lines.length * 4.1 * MM;
+
+  doc.save();
+  doc.opacity(alpha);
+  doc.rotate(-30, { origin: [W / 2, H / 2] });
+  const prevX = doc.x, prevY = doc.y;
+  const diag = Math.hypot(W, H);
+  const x0 = W / 2 - diag / 2, y0 = H / 2 - diag / 2;
+  /* height:Infinity keeps pdfkit's line-wrapper from treating the rotated
+     coordinates as overflow — the watermark must NEVER add a page. */
+  const NB = { lineBreak: false, height: Infinity };
+  for (let ty = y0; ty < y0 + diag; ty += TH) {
+    for (let tx = x0; tx < x0 + diag; tx += TW) {
+      const inner = ty + (TH - blockH) / 2;
+      try { doc.image(wmState.img, tx + (TW - crestW) / 2, inner, { width: crestW }); } catch { /* skip tile image */ }
+      let ly = inner + crestH + 2 * MM;
+      doc.font('Times-Bold').fontSize(10).fillColor(C.walnut)
+        .text('MORA HOME', tx, ly, Object.assign({ width: TW, align: 'center', characterSpacing: 1.2 }, NB));
+      ly += 4.6 * MM;
+      doc.font('Helvetica').fontSize(7);
+      for (const ln of lines) { doc.text(ln, tx, ly, Object.assign({ width: TW, align: 'center' }, NB)); ly += 4.1 * MM; }
+    }
+  }
+  doc.restore();
+  doc.opacity(1);
+  doc.x = prevX; doc.y = prevY;      // rotated coords must not leak into the layout flow
+}
+/** Per-document watermark state: settings resolved once, logo embedded once. */
+function watermarkState(ctx) {
+  return { wm: watermarkSettings(ctx), cc: catalogueContact(ctx), img: null };
+}
+
+/* ───────────────────────── text fitting helpers ───────────────────────── */
+function fitLine(doc, text, width) {
+  let t = String(text == null ? '' : text);
+  if (doc.widthOfString(t, { lineBreak: false }) <= width) return t;
+  while (t.length > 1 && doc.widthOfString(t + '…', { lineBreak: false }) > width) t = t.slice(0, -1);
+  return t + '…';
+}
+function fitLines(doc, text, width, maxLines) {
+  const words = String(text == null ? '' : text).split(/\s+/).filter(Boolean);
+  const out = [];
+  let cur = '';
+  for (const w of words) {
+    const next = cur ? cur + ' ' + w : w;
+    if (doc.widthOfString(next, { lineBreak: false }) <= width || !cur) cur = next;
+    else { out.push(cur); cur = w; if (out.length === maxLines) break; }
+  }
+  if (out.length < maxLines && cur) out.push(cur);
+  if (out.length > maxLines) out.length = maxLines;
+  if (out.length === maxLines && cur && out[maxLines - 1] !== cur) {
+    out[maxLines - 1] = fitLine(doc, out[maxLines - 1] + ' ' + cur, width);
+  }
+  return out;
+}
+
 /** Draws one product's spec sheet onto `doc`'s CURRENT page (may add pages for long specs). */
-async function drawSpecPage(doc, p, ctx, crestBuf) {
-  const c = ctx.contact;
+async function drawSpecPage(doc, p, ctx, crestBuf, wmState) {
+  const c = catalogueContact(ctx);
   const cat = db.get('SELECT * FROM categories WHERE slug = ?', [p.category_slug]);
   const img = db.get('SELECT * FROM product_images WHERE product_id = ? ORDER BY sort ASC LIMIT 1', [p.id]);
   let specs = []; try { specs = JSON.parse(p.specs_json || '[]'); } catch { specs = []; }
@@ -58,10 +204,11 @@ async function drawSpecPage(doc, p, ctx, crestBuf) {
     doc.font('Helvetica').fontSize(7.5).fillColor(C.muted)
       .text(`Generated from the MORA HOME wholesale system on ${new Date().toISOString().slice(0, 10)} · For wholesale / B2B enquiries only.`, L, fy + 8, { width: CW, lineBreak: false });
     doc.font('Helvetica-Bold').fontSize(7.5).fillColor(C.walnut)
-      .text(`${c.email1} · ${c.email2} · ${c.phone} · WhatsApp +${c.whatsapp}`, L, fy + 20, { width: CW, lineBreak: false });
+      .text(clean([c.email, c.phone, `WhatsApp +${c.whatsapp}`, c.website].filter(Boolean).join(' · ')), L, fy + 20, { width: CW, lineBreak: false });
   };
 
   paper();
+  if (wmState) await paintWatermark(doc, ctx, wmState);   // baked in, behind everything
 
   /* ---------- header ---------- */
   const crestW = 30 * MM;
@@ -71,7 +218,7 @@ async function drawSpecPage(doc, p, ctx, crestBuf) {
     .text('MORA HOME', tx, TOP + 4, { characterSpacing: 4, lineBreak: false });
   doc.font('Helvetica').fontSize(9).fillColor(C.muted)
     .text('Manufacturer & Exporter of Handcrafted Metal & Wooden Home Products', tx, TOP + 34, { width: CW - crestW - 90 });
-  doc.fontSize(8.5).text(clean(`${c.address} · ${c.phone} · ${c.email1}`), tx, doc.y + 3, { width: CW - crestW - 90 });
+  doc.fontSize(8.5).text(clean(`${c.address} · ${c.phone} · ${c.email}`), tx, doc.y + 3, { width: CW - crestW - 90 });
   doc.font('Helvetica-Bold').fontSize(14).fillColor(C.crimson)
     .text(p.code, R - 120, TOP + 6, { width: 120, align: 'right', characterSpacing: 1, lineBreak: false });
   let y = TOP + crestW + 8;
@@ -112,17 +259,18 @@ async function drawSpecPage(doc, p, ctx, crestBuf) {
   const sub = () => { doc.font('Times-Bold').fontSize(13).fillColor(C.walnut).text('Detailed Specifications', L, y); y = doc.y + 6; };
   sub();
   const kW = CW * 0.34;
-  specs.forEach((s, i) => {
+  for (let i = 0; i < specs.length; i++) {
+    const s = specs[i];
     const k = clean(s.k), v = clean(s.v);
     doc.font('Helvetica').fontSize(8.5);
     const h = Math.max(doc.heightOfString(v, { width: CW - kW - 16 }), doc.heightOfString(k, { width: kW - 16 }), 10) + 10;
-    if (y + h > H - 16 * MM - FOOT_H - 10) { footer(); doc.addPage(); paper(); y = TOP; sub(); }
+    if (y + h > H - 16 * MM - FOOT_H - 10) { footer(); doc.addPage(); paper(); if (wmState) await paintWatermark(doc, ctx, wmState); y = TOP; sub(); }
     if (i % 2 === 0) doc.rect(L, y, CW, h).fill(C.stripe);
     doc.font('Helvetica-Bold').fontSize(8.5).fillColor(C.walnut).text(k, L + 8, y + 5, { width: kW - 16 });
     doc.font('Helvetica').fillColor(C.text).text(v, L + kW + 8, y + 5, { width: CW - kW - 16 });
     y += h;
     doc.moveTo(L, y).lineTo(R, y).lineWidth(0.6).strokeColor(C.line).stroke();
-  });
+  }
 
   footer();
 }
@@ -130,8 +278,8 @@ async function drawSpecPage(doc, p, ctx, crestBuf) {
 /** Branded catalogue cover page (audit H2) — fully centred, print-professional.
     NOTE: pdfkit only honours `align` when an explicit `width` is passed, so every
     centred line goes through the `center()` helper below. */
-function drawCoverPage(doc, ctx, crestBuf, prods, opts = {}) {
-  const c = ctx.contact;
+async function drawCoverPage(doc, ctx, crestBuf, prods, opts = {}, wmState) {
+  const c = catalogueContact(ctx);
   const W = doc.page.width, H = doc.page.height;
   const center = (str, y, opt = {}, width = W) =>
     doc.text(str, (W - width) / 2, y, Object.assign({ width, align: 'center' }, opt));
@@ -139,6 +287,7 @@ function drawCoverPage(doc, ctx, crestBuf, prods, opts = {}) {
   doc.rect(0, 0, W, H).fill(C.paper);
   doc.rect(0, 0, W, 9 * MM).fill(C.walnut);
   doc.rect(0, H - 9 * MM, W, 9 * MM).fill(C.walnut);
+  if (wmState) await paintWatermark(doc, ctx, wmState);   // cover carries the watermark too
 
   /* ── crest ── */
   let y = 22 * MM;
@@ -210,7 +359,7 @@ function drawCoverPage(doc, ctx, crestBuf, prods, opts = {}) {
   center(clean(`${c.phone}   ·   WhatsApp +${c.whatsapp}`), by);
   y = doc.y + 2.4 * MM;
   doc.font('Helvetica').fontSize(9.5).fillColor(C.muted);
-  center(clean(`${c.email1}   ·   ${c.email2}`), y);
+  center(clean(`${c.email}   ·   ${c.website}`), y);
   y = doc.y + 2.4 * MM;
   doc.fontSize(9);
   center(clean(c.address), y);
@@ -232,9 +381,10 @@ function collect(doc) {
 /** Single-product A4 spec sheet PDF. */
 async function specPdf(p, ctx) {
   const crestBuf = await crestBuffer(ctx);
+  const wmState = watermarkState(ctx);
   const doc = new PDFDocument({ size: 'A4', margin: 0, info: { Title: `${p.code} — ${p.name}`, Author: 'MORA HOME' } });
   const done = collect(doc);
-  await drawSpecPage(doc, p, ctx, crestBuf);
+  await drawSpecPage(doc, p, ctx, crestBuf, wmState);
   doc.end();
   return done;
 }
@@ -248,6 +398,7 @@ async function cataloguePdf(ctx, opts = {}) {
   const params = opts.catSlug ? [opts.catSlug] : [];
   const prods = db.all(`SELECT * FROM products WHERE ${where} ORDER BY category_slug ASC, code ASC`, params);
   const crestBuf = await crestBuffer(ctx);
+  const wmState = watermarkState(ctx);
   let cat = null;
   if (opts.catSlug) cat = db.get('SELECT * FROM categories WHERE slug = ?', [opts.catSlug]);
   const doc = new PDFDocument({
@@ -259,37 +410,199 @@ async function cataloguePdf(ctx, opts = {}) {
   });
   const done = collect(doc);
   if (opts.includeCover !== false) {
-    drawCoverPage(doc, ctx, crestBuf, prods, cat
+    await drawCoverPage(doc, ctx, crestBuf, prods, cat
       ? { title: `${cat.name.toUpperCase()} RANGE`, cats: [{ name: cat.name, slug: cat.slug, n: prods.length }] }
-      : {});
+      : {}, wmState);
   }
   for (let i = 0; i < prods.length; i++) {
     if (i > 0 || opts.includeCover !== false) doc.addPage();
-    await drawSpecPage(doc, prods[i], ctx, crestBuf);   // eslint-disable-line no-await-in-loop
+    await drawSpecPage(doc, prods[i], ctx, crestBuf, wmState);   // eslint-disable-line no-await-in-loop
   }
   doc.end();
   return done;
 }
 
 /** Prepend an uploaded/branded cover PDF (e.g. the designed front page) to a
-    generated body PDF. Uses pdf-lib — pure JS, no external binaries. */
-async function mergeCover(coverBuf, bodyBuf) {
-  const { PDFDocument } = require('pdf-lib');
-  const out = await PDFDocument.create();
-  const cover = await PDFDocument.load(coverBuf, { ignoreEncryption: true });
-  const body = await PDFDocument.load(bodyBuf, { ignoreEncryption: true });
+    generated body PDF. Uses pdf-lib — pure JS, no external binaries.
+    The merged-in cover page is a page of the finished catalogue, so it gets the
+    baked watermark stamped on top of it (behind nothing — the cover art is the
+    page; the watermark tiles stay at 13 % so the design stays the focus). */
+async function mergeCover(coverBuf, bodyBuf, ctx) {
+  const { PDFDocument: Lib } = require('pdf-lib');
+  const out = await Lib.create();
+  const cover = await Lib.load(coverBuf, { ignoreEncryption: true });
+  const body = await Lib.load(bodyBuf, { ignoreEncryption: true });
   for (const pg of await out.copyPages(cover, cover.getPageIndices())) out.addPage(pg);
   for (const pg of await out.copyPages(body, body.getPageIndices())) out.addPage(pg);
+  if (ctx) await stampMergedPages(out, ctx);
   return Buffer.from(await out.save());
 }
 
-/** v8.3 — "Selected products" catalogue: only the products the visitor ticked
-    on the Products page. Page 1 carries the MORA HOME crest + full contact
-    header; every product shows photo (branded placeholder when pending),
-    code, name, material, size and MOQ. */
+/** Stamps the baked watermark onto pages that arrived from an uploaded cover
+    PDF (those pages carry no pdfkit content stream of ours). Each element is a
+    normal content-stream draw op on the page — not a layer, not an annotation.
+    Tile origins are laid out on an unrotated grid, then every point is mapped
+    through a +30° rotation about the page centre so the pattern runs diagonally
+    (visually identical to the pdfkit pages' rotate(-30)). */
+async function stampMergedPages(pdf, ctx) {
+  const { StandardFonts, degrees } = require('pdf-lib');
+  const wm = watermarkSettings(ctx);
+  if (!wm.enabled) return;
+  const rel = wm.logoPath || (ctx.brand && ctx.brand.crestPath) || '/uploads/brand/crest-transparent.png';
+  const buf = await watermarkLogoBuffer(rel);
+  if (!buf) return;
+  let wmImg = null;
+  try { wmImg = await pdf.embedPng(buf); } catch { return; }
+  const cc = catalogueContact(ctx);
+  const fontB = await pdf.embedStandardFont(StandardFonts.HelveticaBold);
+  const font = await pdf.embedStandardFont(StandardFonts.Helvetica);
+  const alpha = Math.min(0.25, Math.max(0.05, wm.opacity / 100));
+  const lines = [cc.phone, cc.email, cc.website].map(clean).filter(Boolean);
+  const TW = 64 * MM, TH = 50 * MM;
+  const crestW = 15 * MM, crestH = crestW * (wmImg.height / wmImg.width);
+  const blockH = crestH + 2 * MM + lines.length * 4.1 * MM;
+
+  for (const page of pdf.getPages()) {
+    const { width: W, height: H } = page.getSize();
+    const cx = W / 2, cy = H / 2;
+    const phi = 30 * Math.PI / 180, cos = Math.cos(phi), sin = Math.sin(phi);
+    /* conceptual y-down tile point → mapped y-up page coordinates */
+    const P = (tx, ty) => {
+      const u = tx, v = H - ty;
+      return [cx + (u - cx) * cos - (v - cy) * sin, cy + (u - cx) * sin + (v - cy) * cos];
+    };
+    const diag = Math.hypot(W, H);
+    for (let ty = cy - diag / 2; ty < cy + diag / 2; ty += TH) {
+      for (let tx = cx - diag / 2; tx < cx + diag / 2; tx += TW) {
+        const inner = ty + (TH - blockH) / 2;
+        const [ix, iy] = P(tx + (TW - crestW) / 2, inner + crestH);   // image bottom-left
+        page.drawImage(wmImg, { x: ix, y: iy, width: crestW, height: crestH, opacity: alpha, rotate: degrees(30) });
+        let ly = inner + crestH + 2 * MM;
+        const [mx, my] = P(tx + 6 * MM, ly + 8);
+        page.drawText('MORA HOME', { x: mx, y: my, size: 10, font: fontB, opacity: alpha, rotate: degrees(30) });
+        ly += 4.6 * MM;
+        for (const ln of lines) {
+          const [lx, lyy] = P(tx + 6 * MM, ly + 6);
+          page.drawText(ln, { x: lx, y: lyy, size: 7, font, opacity: alpha, rotate: degrees(30) });
+          ly += 4.1 * MM;
+        }
+      }
+    }
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SELECTED-PRODUCTS CATALOGUE — exactly 6 products per A4 page (2 cols × 3 rows)
+   Every card: photo · code · wholesale price (or "Price on request") · name ·
+   material · size · MOQ. Products are chunked 6-per-page so a card is never
+   cut across a page break; the last page may hold fewer.
+   ══════════════════════════════════════════════════════════════════════════ */
+const SEL = {
+  cols: 2, rows: 3, perPage: 6,
+  gapX: 7 * MM, gapY: 6 * MM,
+  cellH: 66 * MM,          // fixed so the grid is identical on every page
+  pad: 4 * MM,
+  photo: 34 * MM,
+};
+
+function selHeader(doc, c, crestBuf, first) {
+  const W = doc.page.width;
+  const L = 14 * MM, R = W - 14 * MM, CW = R - L;
+  const TOP = 14 * MM;
+  if (crestBuf) { try { doc.image(crestBuf, L, TOP, { width: 24 * MM }); } catch { /* skip */ } }
+  const tx = L + 24 * MM + 10;
+  doc.font('Times-Bold').fontSize(19).fillColor(C.dark)
+    .text('MORA HOME', tx, TOP + 2, { characterSpacing: 3, lineBreak: false });
+  doc.font('Helvetica').fontSize(8.5).fillColor(C.muted)
+    .text(clean([c.address, c.phone, c.email, `WhatsApp +${c.whatsapp}`, c.website].filter(Boolean).join(' · ')), tx, TOP + 26, { width: CW - 24 * MM - 40 * MM });
+  doc.font('Helvetica-Bold').fontSize(10.5).fillColor(C.crimson)
+    .text('SELECTED PRODUCTS CATALOGUE', R - 62 * MM, TOP + 4, { width: 62 * MM, align: 'right', characterSpacing: 1, lineBreak: false });
+  let y = TOP + 24 * MM + 6;
+  doc.moveTo(L, y).lineTo(R, y).lineWidth(1.4).strokeColor(C.walnut).stroke();
+  if (first) {
+    doc.font('Helvetica-Oblique').fontSize(9).fillColor(C.muted)
+      .text(`Your shortlisted designs · generated ${new Date().toISOString().slice(0, 10)} · wholesale prices shown per design, "Price on request" where not listed`, L, y + 6, { width: CW, lineBreak: false });
+    y += 20;
+  } else {
+    y += 10;
+  }
+  return y + 6;
+}
+
+function selFooter(doc, c) {
+  const W = doc.page.width, H = doc.page.height;
+  const L = 14 * MM, R = W - 14 * MM, CW = R - L;
+  const fy = H - 14 * MM;
+  doc.moveTo(L, fy - 6).lineTo(R, fy - 6).lineWidth(0.6).strokeColor(C.line).stroke();
+  doc.font('Helvetica').fontSize(7.5).fillColor(C.muted)
+    .text(clean([c.phone, `WhatsApp +${c.whatsapp}`, c.email, c.website, c.address].filter(Boolean).join(' · ')), L, fy, { width: CW, lineBreak: false });
+}
+
+function drawSelCard(doc, p, photoBuf, x, y, w, h) {
+  const pad = SEL.pad, PS = SEL.photo;
+  const bx = x + pad, bw = w - 2 * pad;
+
+  /* measure first so the whole content block can be centred in the card
+     (a 1-line and a 2-line title both sit balanced, never top-stuck) */
+  doc.font('Times-Bold').fontSize(10);
+  const nameLines = fitLines(doc, clean(p.name), bw, 2);
+  const nameLH = doc.currentLineHeight(true) + 0.6 * MM;
+  doc.font('Helvetica').fontSize(7.4);
+  const factLH = doc.currentLineHeight(true) + 1.1 * MM;
+  const contentH = 3 * MM + PS + nameLines.length * nameLH + 0.8 * MM + 3 * factLH;
+  const base = y + Math.max(pad, (h - contentH) / 2);
+
+  /* card plate */
+  doc.roundedRect(x, y, w, h, 2.5 * MM).fillAndStroke(C.stripe, C.line);
+
+  /* photo (or neat branded placeholder when none uploaded) */
+  doc.save(); doc.roundedRect(bx, base, PS, PS, 2 * MM).clip();
+  doc.rect(bx, base, PS, PS).fill(C.photoBg);
+  if (photoBuf) {
+    try { doc.image(photoBuf, bx, base, { cover: [PS, PS], align: 'center', valign: 'center' }); } catch { /* skip */ }
+  }
+  doc.restore();
+  doc.roundedRect(bx, base, PS, PS, 2 * MM).lineWidth(0.6).strokeColor(C.line).stroke();
+  if (!photoBuf) {
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(C.ph)
+      .text(String(p.code), bx, base + PS / 2 - 9, { width: PS, align: 'center', lineBreak: false });
+    doc.font('Helvetica').fontSize(5.6).fillColor(C.ph)
+      .text('PHOTO PENDING', bx, base + PS / 2 + 3, { width: PS, align: 'center', lineBreak: false });
+  }
+
+  /* code + price pill to the right of the photo */
+  const tx = bx + PS + 4 * MM, tw = w - (tx - x) - pad;
+  doc.font('Helvetica-Bold').fontSize(9.5).fillColor(C.crimson)
+    .text(fitLine(doc, String(p.code), tw), tx, base + 1 * MM, { lineBreak: false });
+  const price = String(p.price || '').trim();
+  const priceTxt = price ? clean(price) : 'Price on request';
+  doc.font('Helvetica-Bold').fontSize(7.2);
+  const pillW = Math.min(tw, doc.widthOfString(priceTxt, { lineBreak: false }) + 6 * MM);
+  const pillH = 6 * MM, pillY = base + 6.5 * MM;
+  doc.roundedRect(tx, pillY, pillW, pillH, pillH / 2)
+    .fillAndStroke(price ? C.walnut : C.photoBg, price ? C.walnut : C.line);
+  doc.font('Helvetica-Bold').fontSize(7.2).fillColor(price ? '#FFFDF8' : C.muted)
+    .text(fitLine(doc, priceTxt, pillW - 6 * MM), tx + 3 * MM, pillY + 1.9 * MM, { lineBreak: false });
+
+  /* title + facts below the photo, full card width.
+     NOTE: pdfkit only advances doc.y for wrapped (width) text — single-line
+     text must advance the cursor manually, so the facts use an explicit
+     line-height step instead of doc.y. */
+  let by = base + PS + 3 * MM;
+  doc.font('Times-Bold').fontSize(10).fillColor(C.dark);
+  for (const ln of nameLines) { doc.text(ln, bx, by, { width: bw, lineBreak: false, height: Infinity }); by += nameLH; }
+  by += 0.8 * MM;
+  doc.font('Helvetica').fontSize(7.4).fillColor(C.text);
+  for (const [k, v] of [['Material', p.material], ['Size', p.size], ['MOQ', p.moq]]) {
+    doc.text(fitLine(doc, `${k}:  ${clean(v) || '—'}`, bw), bx, by, { lineBreak: false });
+    by += factLH;
+  }
+}
+
 async function selectedCataloguePdf(ctx, prods) {
-  const c = ctx.contact;
+  const c = catalogueContact(ctx);
   const crestBuf = await crestBuffer(ctx);
+  const wmState = watermarkState(ctx);
   const doc = new PDFDocument({
     size: 'A4', margin: 0,
     info: { Title: 'MORA HOME — Selected Products Catalogue', Author: 'MORA HOME', Subject: 'Visitor-selected product shortlist' },
@@ -297,79 +610,39 @@ async function selectedCataloguePdf(ctx, prods) {
   const done = collect(doc);
   const W = doc.page.width, H = doc.page.height;
   const L = 14 * MM, R = W - 14 * MM, CW = R - L;
+  const contentBottom = H - 16 * MM;
 
-  const pageFooter = () => {
-    const fy = H - 14 * MM;
-    doc.moveTo(L, fy - 6).lineTo(R, fy - 6).lineWidth(0.6).strokeColor(C.line).stroke();
-    doc.font('Helvetica').fontSize(7.5).fillColor(C.muted)
-      .text(clean(`${c.phone} · WhatsApp +${c.whatsapp} · ${c.email1} · ${c.address}`), L, fy, { width: CW, lineBreak: false });
-  };
-
-  const header = (first) => {
-    const TOP = 14 * MM;
-    if (crestBuf) { try { doc.image(crestBuf, L, TOP, { width: 24 * MM }); } catch { /* skip */ } }
-    const tx = L + 24 * MM + 10;
-    doc.font('Times-Bold').fontSize(19).fillColor(C.dark)
-      .text('MORA HOME', tx, TOP + 2, { characterSpacing: 3, lineBreak: false });
-    doc.font('Helvetica').fontSize(8.5).fillColor(C.muted)
-      .text(clean(`${c.address} · ${c.phone} · ${c.email1} · WhatsApp +${c.whatsapp}`), tx, TOP + 26, { width: CW - 24 * MM - 40 * MM });
-    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(C.crimson)
-      .text('SELECTED PRODUCTS CATALOGUE', R - 62 * MM, TOP + 4, { width: 62 * MM, align: 'right', characterSpacing: 1, lineBreak: false });
-    let y = TOP + 24 * MM + 6;
-    doc.moveTo(L, y).lineTo(R, y).lineWidth(1.4).strokeColor(C.walnut).stroke();
-    if (first) {
-      doc.font('Helvetica-Oblique').fontSize(9).fillColor(C.muted)
-        .text(`Your shortlisted designs · generated ${new Date().toISOString().slice(0, 10)} · wholesale prices & custom branding on request`, L, y + 6, { width: CW, lineBreak: false });
-      y += 20;
-    } else {
-      y += 10;
-    }
-    return y + 6;
-  };
-
-  let y = header(true);
-  const PH = 40 * MM;      // square photo / placeholder block
-  const GAP = 8 * MM;
-
-  for (let i = 0; i < prods.length; i++) {
-    const p = prods[i];
-    if (y + PH > H - 22 * MM) { pageFooter(); doc.addPage(); y = header(false); }
-
-    /* photo (or neat branded placeholder when none uploaded) */
+  /* preload every photo once so page breaks stay synchronous & fast */
+  const photoOf = {};
+  for (const p of prods) {
     const img = db.get('SELECT * FROM product_images WHERE product_id = ? ORDER BY sort ASC LIMIT 1', [p.id]);
-    const buf = img ? await imageBuffer(absFromRel(img.path)) : null;   // eslint-disable-line no-await-in-loop
-    doc.roundedRect(L, y, PH, PH, 2.5 * MM).fillAndStroke(C.photoBg, C.line);
-    if (buf) {
-      try { doc.image(buf, L + 1.5 * MM, y + 1.5 * MM, { fit: [PH - 3 * MM, PH - 3 * MM], align: 'center', valign: 'center' }); } catch { /* skip */ }
-    } else {
-      doc.font('Helvetica-Bold').fontSize(11).fillColor(C.ph)
-        .text(String(p.code), L, y + PH / 2 - 10, { width: PH, align: 'center', lineBreak: false });
-      doc.font('Helvetica').fontSize(6.5).fillColor(C.ph)
-        .text('PHOTO PENDING', L, y + PH / 2 + 4, { width: PH, align: 'center', lineBreak: false });
-    }
-
-    /* facts */
-    const tx = L + PH + 8 * MM, tw = R - tx;
-    doc.font('Helvetica-Bold').fontSize(12).fillColor(C.crimson)
-      .text(String(p.code), tx, y + 1.5 * MM, { lineBreak: false });
-    doc.font('Times-Bold').fontSize(14).fillColor(C.dark)
-      .text(clean(p.name), tx, y + 7.5 * MM, { width: tw });
-    let ty = doc.y + 3 * MM;
-    doc.font('Helvetica').fontSize(10).fillColor(C.text)
-      .text(`Material:  ${clean(p.material || '—')}`, tx, ty, { width: tw });
-    ty = doc.y + 1.6 * MM;
-    doc.text(`Size:  ${clean(p.size || '—')}`, tx, ty, { width: tw });
-    ty = doc.y + 1.6 * MM;
-    doc.text(`MOQ:  ${clean(p.moq || '—')}`, tx, ty, { width: tw });
-
-    y = Math.max(y + PH, doc.y) + GAP;
-    if (i < prods.length - 1) {
-      doc.moveTo(L, y - GAP / 2).lineTo(R, y - GAP / 2).lineWidth(0.5).strokeColor(C.line).stroke();
-    }
+    photoOf[p.id] = img ? await imageBuffer(absFromRel(img.path)) : null;   // eslint-disable-line no-await-in-loop
   }
-  pageFooter();
+
+  const pages = [];
+  for (let i = 0; i < prods.length; i += SEL.perPage) pages.push(prods.slice(i, i + SEL.perPage));
+
+  for (let pi = 0; pi < pages.length; pi++) {
+    if (pi > 0) doc.addPage();
+    doc.rect(0, 0, W, H).fill(C.paper);
+    await paintWatermark(doc, ctx, wmState);            // baked in, behind the grid
+    const yTop = selHeader(doc, c, crestBuf, pi === 0);
+    selFooter(doc, c);
+
+    const cellW = (CW - SEL.gapX * (SEL.cols - 1)) / SEL.cols;
+    const rows = Math.ceil(pages[pi].length / SEL.cols);
+    const gridH = SEL.cellH * rows + SEL.gapY * (rows - 1);
+    const gridTop = yTop + Math.max(0, (contentBottom - yTop - gridH) / 2);
+
+    pages[pi].forEach((p, i) => {
+      const col = i % SEL.cols, row = Math.floor(i / SEL.cols);
+      const x = L + col * (cellW + SEL.gapX);
+      const y = gridTop + row * (SEL.cellH + SEL.gapY);
+      drawSelCard(doc, p, photoOf[p.id], x, y, cellW, SEL.cellH);
+    });
+  }
   doc.end();
   return done;
 }
 
-module.exports = { specPdf, cataloguePdf, mergeCover, selectedCataloguePdf };
+module.exports = { specPdf, cataloguePdf, mergeCover, selectedCataloguePdf, catalogueContact, watermarkSettings, WM_DEFAULTS, WM_KEY };

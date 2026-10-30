@@ -72,13 +72,13 @@ function productsBody(initialCat, ctx) {
 
     <div class="products-sticky">
       <div class="container">
-        <div class="search-row">
+        <form class="search-row" id="prodSearchForm" role="search" action="/products" method="get">
           <div class="search-bar">
             ${icon('search', 18)}
-            <input id="prodSearch" type="search" placeholder="Search by code or name" aria-label="Search products by code or name">
+            <input id="prodSearch" name="q" type="search" placeholder="Search by code or name" aria-label="Search products by code or name" enterkeyhint="search">
           </div>
           <button class="btn-filter-sort" id="filterSortBtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="filterDrawer">${icon('sliders', 16)}<span class="fs-label">Filter<span class="fs-more"> &amp; Sort</span></span><span class="fs-count" id="fsCount" hidden>0</span></button>
-        </div>
+        </form>
         <div class="filter-row">
           <div class="cat-tabs" id="catTabs" role="tablist" aria-label="Product categories">
             <button class="cat-tab${!initialCat ? ' active' : ''}" data-cat="" role="tab">All</button>
@@ -138,7 +138,7 @@ function productsBody(initialCat, ctx) {
       </div>
     </div>
 
-    <div class="container results-bar">
+    <div class="container results-bar" id="results">
       <p id="resultsCounter" class="results-counter">Showing ${prods.length} of ${prods.length} products</p>
       <div id="filterChips" class="filter-chips"></div>
     </div>
@@ -148,9 +148,13 @@ function productsBody(initialCat, ctx) {
         ${prods.map((p) => productCard(p, byId[p.id] || [])).join('')}
       </div>
       <div class="empty-state" id="emptyState" hidden>
-        <p class="empty-title">No products matched your search.</p>
-        <p>Try a different code (e.g. “MH-2017”) or clear the filters.</p>
-        <button class="btn btn-outline" type="button" id="emptyClear">Clear search &amp; filters</button>
+        <p class="empty-title">No product found</p>
+        <p id="emptyHint">We could not find a product matching your search.</p>
+        <div class="empty-actions">
+          <button class="btn btn-crimson enquiry-open" type="button" data-code="" data-name="General wholesale enquiry">${icon('send', 16)}<span>Send Enquiry</span></button>
+          <button class="btn btn-whatsapp wa-open" type="button">${icon('whatsapp', 16)}<span>WhatsApp Us</span></button>
+          <button class="btn btn-outline" type="button" id="emptyClear">Clear search &amp; filters</button>
+        </div>
       </div>
     </div>
   </section>
